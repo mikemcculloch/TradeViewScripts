@@ -1,0 +1,378 @@
+//@version=5
+strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent,
+     commission_value=0.04, slippage=1, pyramiding=0, calc_on_every_tick=false,
+     process_orders_on_close=false)
+//Created By: Wooanaz
+//Created On: 8/8/2025
+//Modified On: 3/6/2026
+//Version: 2.0.0
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    EMA & DISPLAY INPUTS                     ║
+// ╚══════════════════════════════════════════════════════════════╝
+fastLen      = input.int(50,  title="Fast EMA Length",  group="EMA Settings")
+slowLen      = input.int(200, title="Slow EMA Length",  group="EMA Settings")
+fastColor    = input.color(color.white, title="Fast EMA Color", group="EMA Settings")
+slowColor    = input.color(color.red,   title="Slow EMA Color", group="EMA Settings")
+showEmaFill  = input.bool(true, title="Show EMA Ribbon Fill", group="Display")
+showLabels   = input.bool(true, title="Show Golden/Death Labels", group="Display")
+showFastEmaPriceCrossSignals = input.bool(false, title="Show Price Crossing Fast EMA Signals", group="Display")
+showSlowEmaPriceCrossSignals = input.bool(true,  title="Show Price Crossing Slow EMA Signals", group="Display")
+showDashboard = input.bool(true, title="Show Performance Dashboard", group="Display")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    SIGNAL FILTERS                           ║
+// ╚══════════════════════════════════════════════════════════════╝
+useCooldown  = input.bool(false, title="Enable Cooldown Between Signals", group="Filters")
+cooldownBars = input.int(5, minval=1, title="Cooldown Bars (if enabled)", group="Filters")
+
+filterSideways           = input.bool(false, title="Suppress Signals in Sideways Market", group="Filters")
+emaProximityThreshold    = input.float(0.005, minval=0.0001, step=0.0001, title="EMA Proximity Threshold (%)", group="Filters")
+
+useVolumeFilter  = input.bool(true,  title="Require Above-Average Volume", group="Filters")
+volMaLen         = input.int(20, minval=1, title="Volume MA Length", group="Filters")
+volMultiplier    = input.float(1.0, minval=0.1, step=0.1, title="Volume Multiplier Threshold", group="Filters")
+
+useRsiFilter     = input.bool(true,  title="Enable RSI Filter", group="Filters")
+rsiLen           = input.int(14, minval=2, title="RSI Length", group="Filters")
+rsiOverbought    = input.float(70.0, minval=50, maxval=100, title="RSI Overbought Level", group="Filters")
+rsiOversold      = input.float(30.0, minval=0,  maxval=50,  title="RSI Oversold Level", group="Filters")
+
+useAdxFilter     = input.bool(false, title="Enable ADX Trend Strength Filter", group="Filters")
+adxLen           = input.int(14, minval=1, title="ADX Length", group="Filters")
+adxThreshold     = input.float(20.0, minval=1, title="ADX Minimum Threshold", group="Filters")
+
+useMacdConfirm   = input.bool(false, title="Enable MACD Confirmation", group="Filters")
+macdFast         = input.int(12, minval=1, title="MACD Fast Length", group="Filters")
+macdSlow         = input.int(26, minval=1, title="MACD Slow Length", group="Filters")
+macdSignalLen    = input.int(9,  minval=1, title="MACD Signal Length", group="Filters")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    RISK MANAGEMENT                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+useStopLoss      = input.bool(true,  title="Enable Stop Loss", group="Risk Management")
+slType           = input.string("ATR", title="Stop Loss Type", options=["ATR", "Percent", "Swing"], group="Risk Management")
+atrLen           = input.int(14, minval=1, title="ATR Length", group="Risk Management")
+atrSlMultiplier  = input.float(2.0, minval=0.1, step=0.1, title="ATR SL Multiplier", group="Risk Management")
+slPercent        = input.float(2.0, minval=0.1, step=0.1, title="Stop Loss % (if Percent)", group="Risk Management")
+swingLookback    = input.int(10, minval=2, title="Swing Lookback Bars (if Swing)", group="Risk Management")
+
+useTakeProfit    = input.bool(true,  title="Enable Take Profit", group="Risk Management")
+tpType           = input.string("Risk:Reward", title="Take Profit Type", options=["Risk:Reward", "ATR", "Percent"], group="Risk Management")
+rrRatio          = input.float(2.0, minval=0.5, step=0.5, title="Risk:Reward Ratio", group="Risk Management")
+atrTpMultiplier  = input.float(3.0, minval=0.1, step=0.1, title="ATR TP Multiplier", group="Risk Management")
+tpPercent        = input.float(4.0, minval=0.1, step=0.1, title="Take Profit % (if Percent)", group="Risk Management")
+
+useTrailingStop  = input.bool(false, title="Enable Trailing Stop", group="Risk Management")
+trailType        = input.string("ATR", title="Trailing Stop Type", options=["ATR", "Percent"], group="Risk Management")
+atrTrailMult     = input.float(1.5, minval=0.1, step=0.1, title="ATR Trail Multiplier", group="Risk Management")
+trailPercent     = input.float(1.5, minval=0.1, step=0.1, title="Trail % (if Percent)", group="Risk Management")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║              POSITION SIZING & TRADE DIRECTION              ║
+// ╚══════════════════════════════════════════════════════════════╝
+tradeDirection = input.string("Both", title="Trade Direction", options=["Long", "Short", "Both"], group="Position")
+exitOnCross    = input.bool(true, title="Exit on EMA Death/Golden Cross", group="Position")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║              DATE RANGE FILTER (BACKTESTING)                ║
+// ╚══════════════════════════════════════════════════════════════╝
+useDateFilter  = input.bool(false, title="Enable Date Range Filter", group="Backtest Range")
+startDate      = input.time(timestamp("2020-01-01"), title="Start Date", group="Backtest Range")
+endDate        = input.time(timestamp("2030-12-31"), title="End Date",   group="Backtest Range")
+inDateRange    = not useDateFilter or (time >= startDate and time <= endDate)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    CORE CALCULATIONS                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === Real Price (standard candles) ===
+realClose = request.security(syminfo.tickerid, timeframe.period, close, lookahead=barmerge.lookahead_on)
+realHigh  = request.security(syminfo.tickerid, timeframe.period, high,  lookahead=barmerge.lookahead_on)
+realLow   = request.security(syminfo.tickerid, timeframe.period, low,   lookahead=barmerge.lookahead_on)
+
+// === EMAs ===
+emaFast = ta.ema(realClose, fastLen)
+emaSlow = ta.ema(realClose, slowLen)
+
+pFast = plot(emaFast, color=fastColor, title="Fast EMA", linewidth=2)
+pSlow = plot(emaSlow, color=slowColor, title="Slow EMA", linewidth=2)
+fill(pFast, pSlow, color=showEmaFill ? (emaFast > emaSlow ? color.new(color.green, 88) : color.new(color.red, 88)) : na, title="EMA Ribbon")
+
+// === ATR ===
+atrValue = ta.atr(atrLen)
+
+// === Volume Filter ===
+volMa = ta.sma(volume, volMaLen)
+volumeOk = not useVolumeFilter or (volume > volMa * volMultiplier)
+
+// === RSI Filter ===
+rsiValue = ta.rsi(realClose, rsiLen)
+rsiBuyOk  = not useRsiFilter or (rsiValue < rsiOverbought)
+rsiSellOk = not useRsiFilter or (rsiValue > rsiOversold)
+
+// === ADX Filter ===
+// ADX calculation (Pine v5 manual)
+[diPlus, diMinus, adxValue] = ta.dmi(adxLen, adxLen)
+adxOk = not useAdxFilter or (adxValue > adxThreshold)
+
+// === MACD Confirmation ===
+[macdLine, signalLine, histLine] = ta.macd(realClose, macdFast, macdSlow, macdSignalLen)
+macdBuyOk  = not useMacdConfirm or (macdLine > signalLine)
+macdSellOk = not useMacdConfirm or (macdLine < signalLine)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    CROSS DETECTION                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+goldenCross = ta.crossover(emaFast, emaSlow)
+deathCross  = ta.crossunder(emaFast, emaSlow)
+
+// === Trend Conditions ===
+isBullTrend = emaFast > emaSlow
+isBearTrend = emaFast < emaSlow
+
+// === Sideways Market Detection ===
+emaSpreadPercent = math.abs(emaFast - emaSlow) / emaSlow
+isSideways = emaSpreadPercent < emaProximityThreshold
+
+// === Price Crosses Slow EMA ===
+wasBelowSlow = realClose[1] < emaSlow[1]
+wasAboveSlow = realClose[1] > emaSlow[1]
+
+priceCrossUpSlow   = wasBelowSlow and realClose > emaSlow
+priceCrossDownSlow = wasAboveSlow and realClose < emaSlow
+
+// === Price Crosses Fast EMA ===
+wasBelowFast = realClose[1] < emaFast[1]
+wasAboveFast = realClose[1] > emaFast[1]
+
+priceCrossUpFast   = wasBelowFast and realClose > emaFast
+priceCrossDownFast = wasAboveFast and realClose < emaFast
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    COOLDOWN LOGIC                           ║
+// ╚══════════════════════════════════════════════════════════════╝
+var int lastGreenBar = na
+var int lastRedBar   = na
+
+greenAllowed = not useCooldown or na(lastGreenBar) or (bar_index - lastGreenBar > cooldownBars)
+redAllowed   = not useCooldown or na(lastRedBar)   or (bar_index - lastRedBar > cooldownBars)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    SIGNAL CONDITIONS                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+sidewaysOk = not filterSideways or not isSideways
+
+// --- Slow EMA signals ---
+greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and adxOk and macdBuyOk  and inDateRange
+redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and adxOk and macdSellOk and inDateRange
+
+// --- Fast EMA signals ---
+greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and adxOk and macdBuyOk  and inDateRange
+redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and adxOk and macdSellOk and inDateRange
+
+// --- Combined entry signals ---
+longEntry  = (greenTriangle or greenCircle) and (tradeDirection == "Long" or tradeDirection == "Both")
+shortEntry = (redTriangle or redCircle)     and (tradeDirection == "Short" or tradeDirection == "Both")
+
+// === Update cooldown ===
+if greenTriangle or greenCircle
+    lastGreenBar := bar_index
+if redTriangle or redCircle
+    lastRedBar := bar_index
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                STOP LOSS / TAKE PROFIT CALC                 ║
+// ╚══════════════════════════════════════════════════════════════╝
+// --- Stop Loss distance ---
+f_slDistance(isLong) =>
+    if slType == "ATR"
+        atrValue * atrSlMultiplier
+    else if slType == "Percent"
+        realClose * slPercent / 100.0
+    else // Swing
+        if isLong
+            realClose - ta.lowest(realLow, swingLookback)
+        else
+            ta.highest(realHigh, swingLookback) - realClose
+
+// --- Take Profit distance ---
+f_tpDistance(slDist) =>
+    if tpType == "Risk:Reward"
+        slDist * rrRatio
+    else if tpType == "ATR"
+        atrValue * atrTpMultiplier
+    else // Percent
+        realClose * tpPercent / 100.0
+
+// --- Trailing stop offset ---
+f_trailOffset() =>
+    if trailType == "ATR"
+        atrValue * atrTrailMult
+    else
+        realClose * trailPercent / 100.0
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    STRATEGY EXECUTION                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === Long Entry ===
+if longEntry and strategy.position_size == 0
+    slDist = f_slDistance(true)
+    tpDist = f_tpDistance(slDist)
+    
+    slPrice = useStopLoss   ? realClose - slDist : na
+    tpPrice = useTakeProfit ? realClose + tpDist : na
+    
+    strategy.entry("Long", strategy.long)
+    
+    if useStopLoss and useTakeProfit
+        strategy.exit("Long Exit", "Long", stop=slPrice, limit=tpPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useStopLoss
+        strategy.exit("Long SL", "Long", stop=slPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useTakeProfit
+        strategy.exit("Long TP", "Long", limit=tpPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useTrailingStop
+        strategy.exit("Long Trail", "Long",
+             trail_points=f_trailOffset() / syminfo.mintick,
+             trail_offset=f_trailOffset() / syminfo.mintick)
+
+// === Short Entry ===
+if shortEntry and strategy.position_size == 0
+    slDist = f_slDistance(false)
+    tpDist = f_tpDistance(slDist)
+    
+    slPrice = useStopLoss   ? realClose + slDist : na
+    tpPrice = useTakeProfit ? realClose - tpDist : na
+    
+    strategy.entry("Short", strategy.short)
+    
+    if useStopLoss and useTakeProfit
+        strategy.exit("Short Exit", "Short", stop=slPrice, limit=tpPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useStopLoss
+        strategy.exit("Short SL", "Short", stop=slPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useTakeProfit
+        strategy.exit("Short TP", "Short", limit=tpPrice,
+             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
+             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
+    else if useTrailingStop
+        strategy.exit("Short Trail", "Short",
+             trail_points=f_trailOffset() / syminfo.mintick,
+             trail_offset=f_trailOffset() / syminfo.mintick)
+
+// === Exit on EMA Cross (trend reversal) ===
+if exitOnCross
+    if deathCross and strategy.position_size > 0
+        strategy.close("Long", comment="Death Cross Exit")
+    if goldenCross and strategy.position_size < 0
+        strategy.close("Short", comment="Golden Cross Exit")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    VISUAL PLOTS                             ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === Golden / Death Cross Labels ===
+plotshape(goldenCross and showLabels, title="Golden Cross", location=location.belowbar,
+     style=shape.xcross, size=size.small, color=color.yellow, text="Golden", textcolor=color.white)
+
+plotshape(deathCross and showLabels, title="Death Cross", location=location.abovebar,
+     style=shape.xcross, size=size.small, color=color.red, text="Death", textcolor=color.white)
+
+// === Slow EMA Cross Signals ===
+plotshape(greenTriangle and showSlowEmaPriceCrossSignals, title="Bullish Price Cross of Slow EMA", location=location.belowbar,
+     style=shape.triangleup, size=size.tiny, color=color.green)
+
+plotshape(redTriangle and showSlowEmaPriceCrossSignals, title="Bearish Price Cross of Slow EMA", location=location.abovebar,
+     style=shape.triangledown, size=size.tiny, color=color.red)
+
+// === Fast EMA Cross Signals ===
+plotshape(greenCircle and showFastEmaPriceCrossSignals, title="Bullish Price Cross of Fast EMA", location=location.belowbar,
+     style=shape.circle, size=size.tiny, color=color.lime)
+
+plotshape(redCircle and showFastEmaPriceCrossSignals, title="Bearish Price Cross of Fast EMA", location=location.abovebar,
+     style=shape.circle, size=size.tiny, color=color.fuchsia)
+
+// === Trend Background ===
+bgcolor(isBullTrend ? color.new(color.green, 95) : isBearTrend ? color.new(color.red, 95) : na, title="Trend Background")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                  PERFORMANCE DASHBOARD                      ║
+// ╚══════════════════════════════════════════════════════════════╝
+if showDashboard and barstate.islastconfirmedhistory
+    var table dash = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
+
+    totalTrades  = strategy.closedtrades
+    winTrades    = strategy.wintrades
+    lossTrades   = strategy.losstrades
+    winRate      = totalTrades > 0 ? (winTrades / totalTrades) * 100 : 0.0
+    netProfit    = strategy.netprofit
+    netProfitPct = strategy.netprofit_percent
+    maxDD        = strategy.max_drawdown
+    profitFactor = strategy.grossloss != 0 ? math.abs(strategy.grossprofit / strategy.grossloss) : 0.0
+
+    table.cell(dash, 0, 0, "Metric",        text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(dash, 1, 0, "Value",          text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(dash, 0, 1, "Total Trades",   text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(totalTrades),  text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 2, "Win Rate",       text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(winRate, "#.1") + "%", text_color=winRate >= 50 ? color.lime : color.orange, text_size=size.small)
+    table.cell(dash, 0, 3, "Wins / Losses",  text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(winTrades) + " / " + str.tostring(lossTrades), text_color=color.white, text_size=size.small)
+    table.cell(dash, 0, 4, "Net Profit",     text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(netProfit, "#.2"), text_color=netProfit >= 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(dash, 0, 5, "Net Profit %",   text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 5, str.tostring(netProfitPct, "#.2") + "%", text_color=netProfitPct >= 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(dash, 0, 6, "Max Drawdown",   text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 6, str.tostring(maxDD, "#.2"), text_color=color.red, text_size=size.small)
+    table.cell(dash, 0, 7, "Profit Factor",  text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 7, str.tostring(profitFactor, "#.2"), text_color=profitFactor >= 1.5 ? color.lime : profitFactor >= 1.0 ? color.yellow : color.red, text_size=size.small)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    ALERT CONDITIONS                         ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// Slow EMA
+alertcondition(greenTriangle, 
+     title="BUY | Slow EMA Bullish Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed ABOVE the Slow EMA in a bullish trend. Close: {{close}}")
+
+alertcondition(redTriangle, 
+     title="SELL | Slow EMA Bearish Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed BELOW the Slow EMA in a bearish trend. Close: {{close}}")
+
+alertcondition(redTriangle or greenTriangle, 
+     title="SIGNAL | Slow EMA Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed the Slow EMA. Close: {{close}}")
+
+// Fast EMA
+alertcondition(greenCircle, 
+     title="BUY | Fast EMA Bullish Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed ABOVE the Fast EMA in a bullish trend. Close: {{close}}")
+
+alertcondition(redCircle, 
+     title="SELL | Fast EMA Bearish Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed BELOW the Fast EMA in a bearish trend. Close: {{close}}")
+
+alertcondition(redCircle or greenCircle, 
+     title="SIGNAL | Fast EMA Cross", 
+     message="{{ticker}} ({{interval}}) — Price crossed the Fast EMA. Close: {{close}}")
+
+// EMA Crossovers
+alertcondition(goldenCross, 
+     title="GOLDEN CROSS | EMA Bullish Crossover", 
+     message="{{ticker}} ({{interval}}) — FAST EMA crossed ABOVE the SLOW EMA (Golden Cross).")
+
+alertcondition(deathCross, 
+     title="DEATH CROSS | EMA Bearish Crossover", 
+     message="{{ticker}} ({{interval}}) — FAST EMA crossed BELOW the SLOW EMA (Death Cross).")
