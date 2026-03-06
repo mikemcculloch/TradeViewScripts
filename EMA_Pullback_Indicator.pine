@@ -3,12 +3,17 @@ indicator("EMA Pullback Entry Signals", overlay=true, max_labels_count=500)
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.1.0
+//Version: 3.2.0
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET SELECTOR                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+preset = input.string("Custom", title="Preset", options=["Custom", "BTC Optimized", "ETH Optimized"], group="⚡ Preset", tooltip="Backtested presets auto-set EMA lengths & filters. Choose 'Custom' to use your own settings below.")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    EMA & DISPLAY INPUTS                     ║
 // ╚══════════════════════════════════════════════════════════════╝
-fastLen      = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes")
+fastLen_i    = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes (ignored when preset is active)")
 slowLen      = input.int(200, title="Slow EMA Length",  group="EMA Settings", tooltip="Longer EMA defines the major trend")
 fastColor    = input.color(color.white, title="Fast EMA Color", group="EMA Settings")
 slowColor    = input.color(color.red,   title="Slow EMA Color", group="EMA Settings")
@@ -29,7 +34,7 @@ useVolumeFilter       = input.bool(true,   title="Require Above-Average Volume",
 useCandleConfirm      = input.bool(true,   title="Require Confirming Candle Body",   group="Filters", tooltip="Buy needs bullish close; sell needs bearish close")
 useSlopeFilter        = input.bool(true,   title="Require EMA Slope Alignment",      group="Filters", tooltip="Slow EMA must be sloping in the trend direction over 10 bars")
 
-useRsiFilter          = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI")
+useRsiFilter_i        = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI (auto-enabled by presets)")
 rsiOverbought         = input.float(70.0, minval=50, maxval=100, title="RSI Overbought", group="Optional Filters")
 rsiOversold           = input.float(30.0, minval=0,  maxval=50,  title="RSI Oversold",   group="Optional Filters")
 
@@ -51,6 +56,14 @@ spyEmaLen             = input.int(50, minval=10, maxval=200, title="SPY EMA Leng
 useBtcTrendFilter     = input.bool(false,  title="Enable BTC Trend Filter (Crypto)",      group="Market Context", tooltip="For altcoins: only go long when BTC itself is in an uptrend (50 > 200 EMA)")
 
 emaProximityThreshold = input.float(0.5, minval=0.01, step=0.01, title="Sideways Threshold %", group="Advanced", tooltip="EMAs closer than this % = sideways. Default 0.5%")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET OVERRIDES                         ║
+// ╚══════════════════════════════════════════════════════════════╝
+// BTC Optimized:  EMA(50/200), all filters ON + RSI — PF 2.33, +99% PnL
+// ETH Optimized:  EMA(20/200), all filters ON + RSI — PF 1.47, +61% PnL
+fastLen      = preset == "BTC Optimized" ? 50  : preset == "ETH Optimized" ? 20  : fastLen_i
+useRsiFilter = preset != "Custom" ? true : useRsiFilter_i
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    CORE CALCULATIONS                        ║

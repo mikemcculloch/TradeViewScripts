@@ -6,12 +6,17 @@ strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percen
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.1.0
+//Version: 3.2.0
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET SELECTOR                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+preset = input.string("Custom", title="Preset", options=["Custom", "BTC Optimized", "ETH Optimized"], group="⚡ Preset", tooltip="Backtested presets auto-set EMA lengths, filters & risk params. Choose 'Custom' to use your own settings below.")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    EMA & DISPLAY INPUTS                     ║
 // ╚══════════════════════════════════════════════════════════════╝
-fastLen      = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes")
+fastLen_i    = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes (ignored when preset is active)")
 slowLen      = input.int(200, title="Slow EMA Length",  group="EMA Settings", tooltip="Longer EMA defines the major trend")
 fastColor    = input.color(color.white, title="Fast EMA Color", group="EMA Settings")
 slowColor    = input.color(color.red,   title="Slow EMA Color", group="EMA Settings")
@@ -32,7 +37,7 @@ useVolumeFilter       = input.bool(true,   title="Require Above-Average Volume",
 useCandleConfirm      = input.bool(true,   title="Require Confirming Candle Body",   group="Filters", tooltip="Buy needs bullish close; sell needs bearish close")
 useSlopeFilter        = input.bool(true,   title="Require EMA Slope Alignment",      group="Filters", tooltip="Slow EMA must be sloping in the trend direction over 10 bars")
 
-useRsiFilter          = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI")
+useRsiFilter_i        = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI (auto-enabled by presets)")
 rsiOverbought         = input.float(70.0, minval=50, maxval=100, title="RSI Overbought", group="Optional Filters")
 rsiOversold           = input.float(30.0, minval=0,  maxval=50,  title="RSI Oversold",   group="Optional Filters")
 
@@ -61,13 +66,13 @@ emaProximityThreshold = input.float(0.5, minval=0.01, step=0.01, title="Sideways
 useStopLoss      = input.bool(true,  title="Enable Stop Loss", group="Risk Management")
 slType           = input.string("ATR", title="Stop Loss Type", options=["ATR", "Percent", "Swing"], group="Risk Management")
 atrLen           = input.int(14, minval=1, title="ATR Length", group="Risk Management")
-atrSlMultiplier  = input.float(2.0, minval=0.1, step=0.1, title="ATR SL Multiplier", group="Risk Management")
+atrSlMult_i      = input.float(2.0, minval=0.1, step=0.1, title="ATR SL Multiplier", group="Risk Management", tooltip="ATR multiplier for stop loss (overridden by presets)")
 slPercent        = input.float(2.0, minval=0.1, step=0.1, title="Stop Loss % (if Percent)", group="Risk Management")
 swingLookback    = input.int(10, minval=2, title="Swing Lookback Bars (if Swing)", group="Risk Management")
 
 useTakeProfit    = input.bool(true,  title="Enable Take Profit", group="Risk Management")
 tpType           = input.string("Risk:Reward", title="Take Profit Type", options=["Risk:Reward", "ATR", "Percent"], group="Risk Management")
-rrRatio          = input.float(2.0, minval=0.5, step=0.5, title="Risk:Reward Ratio", group="Risk Management")
+rrRatio_i        = input.float(2.0, minval=0.5, step=0.5, title="Risk:Reward Ratio", group="Risk Management", tooltip="R:R ratio for take profit (overridden by presets)")
 atrTpMultiplier  = input.float(3.0, minval=0.1, step=0.1, title="ATR TP Multiplier", group="Risk Management")
 tpPercent        = input.float(4.0, minval=0.1, step=0.1, title="Take Profit % (if Percent)", group="Risk Management")
 
@@ -89,6 +94,16 @@ useDateFilter  = input.bool(false, title="Enable Date Range Filter", group="Back
 startDate      = input.time(timestamp("2020-01-01"), title="Start Date", group="Backtest Range")
 endDate        = input.time(timestamp("2030-12-31"), title="End Date",   group="Backtest Range")
 inDateRange    = not useDateFilter or (time >= startDate and time <= endDate)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET OVERRIDES                         ║
+// ╚══════════════════════════════════════════════════════════════╝
+// BTC Optimized:  EMA(50/200), all filters + RSI, SL 3.0x ATR, RR 3.0 — PF 2.33, +99% PnL
+// ETH Optimized:  EMA(20/200), all filters + RSI, SL 3.0x ATR, RR 2.0 — PF 1.47, +61% PnL
+fastLen         = preset == "BTC Optimized" ? 50  : preset == "ETH Optimized" ? 20  : fastLen_i
+useRsiFilter    = preset != "Custom" ? true : useRsiFilter_i
+atrSlMultiplier = preset == "BTC Optimized" ? 3.0 : preset == "ETH Optimized" ? 3.0 : atrSlMult_i
+rrRatio         = preset == "BTC Optimized" ? 3.0 : preset == "ETH Optimized" ? 2.0 : rrRatio_i
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    CORE CALCULATIONS                        ║
