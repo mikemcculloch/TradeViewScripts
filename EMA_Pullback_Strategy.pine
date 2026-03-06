@@ -6,18 +6,18 @@ strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percen
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.2.0
+//Version: 3.3.0
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
 // ╚══════════════════════════════════════════════════════════════╝
-preset = input.string("Custom", title="Preset", options=["Custom", "BTC Optimized", "ETH Optimized"], group="⚡ Preset", tooltip="Backtested presets auto-set EMA lengths, filters & risk params. Choose 'Custom' to use your own settings below.")
+preset = input.string("Custom", title="Preset", options=["Custom", "BTC (Daily)", "ETH (Daily)", "XRP (Daily)", "GOOGL (Daily)", "HIMS (Daily)", "PLTR (Daily)"], group="⚡ Preset", tooltip="Backtested presets from optimization. Auto-sets EMA lengths, filters & risk params. Choose 'Custom' to use your own settings.")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    EMA & DISPLAY INPUTS                     ║
 // ╚══════════════════════════════════════════════════════════════╝
-fastLen_i    = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes (ignored when preset is active)")
-slowLen      = input.int(200, title="Slow EMA Length",  group="EMA Settings", tooltip="Longer EMA defines the major trend")
+fastLen_i    = input.int(50,  title="Fast EMA Length",  group="EMA Settings", tooltip="Shorter EMA reacts faster to price changes (overridden by presets)")
+slowLen_i    = input.int(200, title="Slow EMA Length",  group="EMA Settings", tooltip="Longer EMA defines the major trend (overridden by presets)")
 fastColor    = input.color(color.white, title="Fast EMA Color", group="EMA Settings")
 slowColor    = input.color(color.red,   title="Slow EMA Color", group="EMA Settings")
 
@@ -33,9 +33,9 @@ showDashboard = input.bool(true, title="Show Performance Dashboard",           g
 // ╚══════════════════════════════════════════════════════════════╝
 useCooldown           = input.bool(true,   title="Enable Cooldown Between Signals",  group="Filters", tooltip="Minimum 3 bars between same-direction signals")
 filterSideways        = input.bool(true,   title="Suppress Signals in Sideways Market", group="Filters", tooltip="Blocks signals when EMAs are within 0.5% of each other")
-useVolumeFilter       = input.bool(true,   title="Require Above-Average Volume",     group="Filters", tooltip="Signal only fires when volume > its 20-bar SMA")
-useCandleConfirm      = input.bool(true,   title="Require Confirming Candle Body",   group="Filters", tooltip="Buy needs bullish close; sell needs bearish close")
-useSlopeFilter        = input.bool(true,   title="Require EMA Slope Alignment",      group="Filters", tooltip="Slow EMA must be sloping in the trend direction over 10 bars")
+useVolume_i           = input.bool(true,   title="Require Above-Average Volume",     group="Filters", tooltip="Signal only fires when volume > its 20-bar SMA (overridden by presets)")
+useCandleConfirm_i    = input.bool(true,   title="Require Confirming Candle Body",   group="Filters", tooltip="Buy needs bullish close; sell needs bearish close (overridden by presets)")
+useSlope_i            = input.bool(true,   title="Require EMA Slope Alignment",      group="Filters", tooltip="Slow EMA must be sloping in the trend direction over 10 bars (overridden by presets)")
 
 useRsiFilter_i        = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI (auto-enabled by presets)")
 rsiOverbought         = input.float(70.0, minval=50, maxval=100, title="RSI Overbought", group="Optional Filters")
@@ -98,12 +98,30 @@ inDateRange    = not useDateFilter or (time >= startDate and time <= endDate)
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET OVERRIDES                         ║
 // ╚══════════════════════════════════════════════════════════════╝
-// BTC Optimized:  EMA(50/200), all filters + RSI, SL 3.0x ATR, RR 3.0 — PF 2.33, +99% PnL
-// ETH Optimized:  EMA(20/200), all filters + RSI, SL 3.0x ATR, RR 2.0 — PF 1.47, +61% PnL
-fastLen         = preset == "BTC Optimized" ? 50  : preset == "ETH Optimized" ? 20  : fastLen_i
-useRsiFilter    = preset != "Custom" ? true : useRsiFilter_i
-atrSlMultiplier = preset == "BTC Optimized" ? 3.0 : preset == "ETH Optimized" ? 3.0 : atrSlMult_i
-rrRatio         = preset == "BTC Optimized" ? 3.0 : preset == "ETH Optimized" ? 2.0 : rrRatio_i
+// Daily chart optimization results (576 configs × 1000 bars):
+// BTC  (Daily): EMA(50/200)  CD SW VOL CC SLP RSI  SL3.0x RR3.0  — PF 2.33   +99%
+// ETH  (Daily): EMA(20/200)  CD SW VOL CC SLP RSI  SL3.0x RR2.0  — PF 1.47   +61%
+// XRP  (Daily): EMA(20/100)  CD SW VOL CC SLP RSI  SL2.0x RR1.5  — PF 1.42   +51%
+// GOOGL(Daily): EMA(50/200)  CD SW VOL CC --- RSI  SL1.5x RR1.5  — PF 4.67   +37%
+// HIMS (Daily): EMA(50/100)  CD SW VOL CC SLP RSI  SL3.0x RR3.0  — PF 22.43 +324%
+// PLTR (Daily): EMA(50/100)  CD SW --- --- SLP RSI  SL3.0x RR3.0  — PF 3.98  +208%
+
+isBTC  = preset == "BTC (Daily)"
+isETH  = preset == "ETH (Daily)"
+isXRP  = preset == "XRP (Daily)"
+isGOOGL = preset == "GOOGL (Daily)"
+isHIMS = preset == "HIMS (Daily)"
+isPLTR = preset == "PLTR (Daily)"
+isPreset = preset != "Custom"
+
+fastLen         = isBTC ? 50  : isETH ? 20  : isXRP ? 20  : isGOOGL ? 50 : isHIMS ? 50 : isPLTR ? 50 : fastLen_i
+slowLen         = isBTC ? 200 : isETH ? 200 : isXRP ? 100 : isGOOGL ? 200 : isHIMS ? 100 : isPLTR ? 100 : slowLen_i
+useRsiFilter    = isPreset ? true : useRsiFilter_i
+useVolumeFilter = isPLTR ? false : isPreset ? true : useVolume_i
+useCandleConfirm = isPLTR ? false : isPreset ? true : useCandleConfirm_i
+useSlopeFilter  = isGOOGL ? false : isPreset ? true : useSlope_i
+atrSlMultiplier = isBTC ? 3.0 : isETH ? 3.0 : isXRP ? 2.0 : isGOOGL ? 1.5 : isHIMS ? 3.0 : isPLTR ? 3.0 : atrSlMult_i
+rrRatio         = isBTC ? 3.0 : isETH ? 2.0 : isXRP ? 1.5 : isGOOGL ? 1.5 : isHIMS ? 3.0 : isPLTR ? 3.0 : rrRatio_i
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    CORE CALCULATIONS                        ║

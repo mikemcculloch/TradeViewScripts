@@ -1,9 +1,9 @@
-//@version=5
+//@version=6
 indicator("EMA Pullback Entry Signals", overlay=true, max_labels_count=500)
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.2.0
+//Version: 4.1.0
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
@@ -40,20 +40,6 @@ rsiOversold           = input.float(30.0, minval=0,  maxval=50,  title="RSI Over
 
 useHtfFilter          = input.bool(false,  title="Enable Higher Timeframe Trend Filter", group="Optional Filters", tooltip="Only take signals when the HTF EMA trend agrees")
 htfTimeframe          = input.timeframe("D", title="Higher Timeframe", group="Optional Filters")
-
-useVixFilter          = input.bool(false,  title="Enable VIX Volatility Gate",           group="Market Context", tooltip="Pause all entries when VIX > threshold (fear/panic). Works for stocks & crypto.")
-vixThreshold          = input.float(30.0, minval=10, maxval=80, step=1, title="VIX Max Threshold", group="Market Context", tooltip="Entries blocked when CBOE:VIX closes above this level")
-
-useDxyFilter          = input.bool(false,  title="Enable DXY Dollar Filter",             group="Market Context", tooltip="Rising dollar is headwind for crypto & growth stocks. Uses 20-bar EMA slope.")
-dxyMode               = input.string("Auto", title="DXY Mode", options=["Auto", "Bearish DXY = Buy Only", "Disabled"], group="Market Context", tooltip="Auto: rising DXY blocks longs for crypto, blocks all for stocks")
-
-useBtcDomFilter       = input.bool(false,  title="Enable BTC Dominance Filter (Crypto)",  group="Market Context", tooltip="For altcoins (ETH/XRP): rising BTC.D = money flowing to BTC, blocks altcoin longs")
-btcDomLen             = input.int(20, minval=5, maxval=100, title="BTC.D EMA Length", group="Market Context")
-
-useSpyFilter          = input.bool(false,  title="Enable SPY/QQQ Market Regime (Stocks)", group="Market Context", tooltip="Only take stock longs when SPY is above its 50 EMA (risk-on)")
-spyEmaLen             = input.int(50, minval=10, maxval=200, title="SPY EMA Length", group="Market Context")
-
-useBtcTrendFilter     = input.bool(false,  title="Enable BTC Trend Filter (Crypto)",      group="Market Context", tooltip="For altcoins: only go long when BTC itself is in an uptrend (50 > 200 EMA)")
 
 emaProximityThreshold = input.float(0.5, minval=0.01, step=0.01, title="Sideways Threshold %", group="Advanced", tooltip="EMAs closer than this % = sideways. Default 0.5%")
 
@@ -104,51 +90,6 @@ slopeBuyOk  = not useSlopeFilter or (emaSlow > emaSlow[10])
 slopeSellOk = not useSlopeFilter or (emaSlow < emaSlow[10])
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║                MARKET CONTEXT CALCULATIONS                  ║
-// ╚══════════════════════════════════════════════════════════════╝
-
-// === Auto-detect asset class ===
-isCrypto = str.contains(str.lower(syminfo.type), "crypto")
-isStock  = str.contains(str.lower(syminfo.type), "stock") or str.contains(str.lower(syminfo.type), "equity")
-
-// === VIX Filter — blocks entries during high-fear environments ===
-vixClose  = request.security("CBOE:VIX", "D", close, lookahead=barmerge.lookahead_on)
-vixOk     = not useVixFilter or na(vixClose) or (vixClose <= vixThreshold)
-
-// === DXY (Dollar Index) — rising dollar = headwind ===
-dxyClose  = request.security("TVC:DXY", "D", close, lookahead=barmerge.lookahead_on)
-dxyEma    = request.security("TVC:DXY", "D", ta.ema(close, 20), lookahead=barmerge.lookahead_on)
-dxyRising = not na(dxyClose) and (dxyClose > dxyEma)
-
-dxyBuyOk  = not useDxyFilter or dxyMode == "Disabled" or na(dxyClose) ? true : dxyMode == "Auto" ? (isCrypto ? not dxyRising : true) : not dxyRising
-dxySellOk = true
-
-// === BTC Dominance — for altcoins only ===
-btcDomClose   = request.security("CRYPTOCAP:BTC.D", "D", close, lookahead=barmerge.lookahead_on)
-btcDomEma     = request.security("CRYPTOCAP:BTC.D", "D", ta.ema(close, btcDomLen), lookahead=barmerge.lookahead_on)
-btcDomRising  = not na(btcDomClose) and (btcDomClose > btcDomEma)
-isBtcItself   = str.contains(str.upper(syminfo.ticker), "BTC") and not str.contains(str.upper(syminfo.ticker), "BTC.D")
-
-btcDomBuyOk   = not useBtcDomFilter or not isCrypto or isBtcItself or na(btcDomClose) or not btcDomRising
-btcDomSellOk  = true
-
-// === SPY / QQQ Market Regime — for stocks ===
-spyClose  = request.security("AMEX:SPY", "D", close, lookahead=barmerge.lookahead_on)
-spyEma    = request.security("AMEX:SPY", "D", ta.ema(close, spyEmaLen), lookahead=barmerge.lookahead_on)
-spyAboveEma = not na(spyClose) and (spyClose > spyEma)
-
-spyBuyOk  = not useSpyFilter or not isStock or na(spyClose) or spyAboveEma
-spySellOk = not useSpyFilter or not isStock or na(spyClose) or not spyAboveEma
-
-// === BTC Trend — for altcoins: BTC must be bullish ===
-btcFastEma = request.security("BINANCE:BTCUSDT", "D", ta.ema(close, 50),  lookahead=barmerge.lookahead_on)
-btcSlowEma = request.security("BINANCE:BTCUSDT", "D", ta.ema(close, 200), lookahead=barmerge.lookahead_on)
-btcBullish = not na(btcFastEma) and (btcFastEma > btcSlowEma)
-
-btcTrendBuyOk  = not useBtcTrendFilter or not isCrypto or isBtcItself or na(btcFastEma) or btcBullish
-btcTrendSellOk = true
-
-// ╔══════════════════════════════════════════════════════════════╗
 // ║                    CROSS DETECTION                          ║
 // ╚══════════════════════════════════════════════════════════════╝
 goldenCross = ta.crossover(emaFast, emaSlow)
@@ -184,17 +125,13 @@ redAllowed   = not useCooldown or na(lastRedBar)   or (bar_index - lastRedBar > 
 // ╚══════════════════════════════════════════════════════════════╝
 sidewaysOk = not filterSideways or not isSideways
 
-// --- Market context combined ---
-mktBuyOk  = vixOk and dxyBuyOk  and btcDomBuyOk  and spyBuyOk  and btcTrendBuyOk
-mktSellOk = vixOk and dxySellOk and btcDomSellOk and spySellOk and btcTrendSellOk
-
 // --- Slow EMA signals ---
-greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk
-redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk
+greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk
+redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk
 
 // --- Fast EMA signals ---
-greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk
-redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk
+greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk
+redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk
 
 // === Update cooldown ===
 if greenTriangle or greenCircle
@@ -244,7 +181,7 @@ bgcolor(showTrendBg ? (isBullTrend ? color.new(color.green, 95) : isBearTrend ? 
 // ║                    INFO PANEL                               ║
 // ╚══════════════════════════════════════════════════════════════╝
 if showInfoPanel and barstate.islast
-    var table panel = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
+    var table panel = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
 
     trendStr    = isBullTrend ? "BULLISH" : isBearTrend ? "BEARISH" : "NEUTRAL"
     trendClr    = isBullTrend ? color.lime : isBearTrend ? color.red : color.gray
@@ -267,18 +204,6 @@ if showInfoPanel and barstate.islast
     table.cell(panel, 1, 5, htfStr,          text_color=htfStr == "BULL" ? color.lime : htfStr == "BEAR" ? color.red : color.gray, text_size=size.small)
     table.cell(panel, 0, 6, "Signals B / S", text_color=color.white, text_size=size.small)
     table.cell(panel, 1, 6, str.tostring(totalBuySignals) + " / " + str.tostring(totalSellSignals), text_color=color.white, text_size=size.small)
-
-    // --- Market Context rows ---
-    table.cell(panel, 0, 7, "",              text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(panel, 1, 7, "Market Context", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(panel, 0, 8, "VIX",           text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 8, na(vixClose) ? "N/A" : str.tostring(vixClose, "#.1"), text_color=useVixFilter ? (vixOk ? color.lime : color.red) : color.gray, text_size=size.small)
-    table.cell(panel, 0, 9, "DXY",           text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 9, dxyRising ? "RISING" : "FALLING", text_color=useDxyFilter ? (dxyRising ? color.red : color.lime) : color.gray, text_size=size.small)
-    table.cell(panel, 0, 10, "BTC.D",        text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 10, btcDomRising ? "RISING" : "FALLING", text_color=useBtcDomFilter and isCrypto ? (btcDomRising ? color.red : color.lime) : color.gray, text_size=size.small)
-    table.cell(panel, 0, 11, "SPY Regime",   text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 11, spyAboveEma ? "RISK-ON" : "RISK-OFF", text_color=useSpyFilter and isStock ? (spyAboveEma ? color.lime : color.red) : color.gray, text_size=size.small)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    ALERT CONDITIONS                         ║
