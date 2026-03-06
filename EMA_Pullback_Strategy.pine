@@ -6,7 +6,7 @@ strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percen
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.5.0
+//Version: 3.6.0
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
@@ -312,16 +312,20 @@ f_trailOffset() =>
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    WEBHOOK JSON BUILDER                     ║
 // ║  Matches TradeSmart API TradingViewAlertRequestDto          ║
+// ║  Entry webhooks include direction + SL/TP for direct exec   ║
 // ╚══════════════════════════════════════════════════════════════╝
-webhookJson = '{' +
+
+// --- Helper: builds the base JSON fields (shared by entry & close) ---
+f_baseJson() =>
      '"symbol":"' + syminfo.ticker + '",' +
      '"exchange":"' + syminfo.prefix + '",' +
      '"action":"{{strategy.order.action}}",' +
      '"price":' + str.tostring(realClose) + ',' +
      '"interval":"' + timeframe.period + '",' +
-     '"message":"EMA Pullback ' + (isBullTrend ? 'Long' : isBearTrend ? 'Short' : 'Signal') + ' — {{strategy.market_position}}",' +
-     '"secret":"' + tvSecret + '"' +
-     '}'
+     '"secret":"' + tvSecret + '"'
+
+closeLongJson  = '{' + f_baseJson() + ',"type":"close","message":"Death Cross — closing Long"}'
+closeShortJson = '{' + f_baseJson() + ',"type":"close","message":"Golden Cross — closing Short"}'
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    STRATEGY EXECUTION                       ║
@@ -335,7 +339,14 @@ if longEntry and strategy.position_size == 0
     slPrice = useStopLoss   ? realClose - slDist : na
     tpPrice = useTakeProfit ? realClose + tpDist : na
     
-    strategy.entry("Long", strategy.long, alert_message=webhookJson)
+    entryJson = '{' + f_baseJson() +
+         ',"type":"entry",' +
+         '"direction":"long",' +
+         '"stopLoss":' + (useStopLoss   ? str.tostring(slPrice) : 'null') + ',' +
+         '"takeProfit":' + (useTakeProfit ? str.tostring(tpPrice) : 'null') + ',' +
+         '"message":"EMA Pullback Long Entry"}'
+    
+    strategy.entry("Long", strategy.long, alert_message=entryJson)
     
     if useStopLoss and useTakeProfit
         strategy.exit("Long Exit", "Long", stop=slPrice, limit=tpPrice,
@@ -362,7 +373,14 @@ if shortEntry and strategy.position_size == 0
     slPrice = useStopLoss   ? realClose + slDist : na
     tpPrice = useTakeProfit ? realClose - tpDist : na
     
-    strategy.entry("Short", strategy.short, alert_message=webhookJson)
+    entryJson = '{' + f_baseJson() +
+         ',"type":"entry",' +
+         '"direction":"short",' +
+         '"stopLoss":' + (useStopLoss   ? str.tostring(slPrice) : 'null') + ',' +
+         '"takeProfit":' + (useTakeProfit ? str.tostring(tpPrice) : 'null') + ',' +
+         '"message":"EMA Pullback Short Entry"}'
+    
+    strategy.entry("Short", strategy.short, alert_message=entryJson)
     
     if useStopLoss and useTakeProfit
         strategy.exit("Short Exit", "Short", stop=slPrice, limit=tpPrice,
@@ -384,9 +402,9 @@ if shortEntry and strategy.position_size == 0
 // === Exit on EMA Cross (trend reversal) ===
 if exitOnCross
     if deathCross and strategy.position_size > 0
-        strategy.close("Long", comment="Death Cross Exit", alert_message=webhookJson)
+        strategy.close("Long", comment="Death Cross Exit", alert_message=closeLongJson)
     if goldenCross and strategy.position_size < 0
-        strategy.close("Short", comment="Golden Cross Exit", alert_message=webhookJson)
+        strategy.close("Short", comment="Golden Cross Exit", alert_message=closeShortJson)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    VISUAL PLOTS                             ║
