@@ -1,8 +1,5 @@
 //@version=5
-strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percent_of_equity,
-     default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent,
-     commission_value=0.04, slippage=1, pyramiding=0, calc_on_every_tick=false,
-     process_orders_on_close=false)
+indicator("EMA Pullback Entry Signals", overlay=true, max_labels_count=500)
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
@@ -21,7 +18,7 @@ showLabels   = input.bool(true,  title="Show Golden/Death Labels",             g
 showFastEmaPriceCrossSignals = input.bool(false, title="Show Price Crossing Fast EMA Signals", group="Display")
 showSlowEmaPriceCrossSignals = input.bool(true,  title="Show Price Crossing Slow EMA Signals", group="Display")
 showTrendBg  = input.bool(true,  title="Show Trend Background Color",          group="Display")
-showDashboard = input.bool(true, title="Show Performance Dashboard",           group="Display")
+showInfoPanel = input.bool(true, title="Show Info Panel",                       group="Display")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    SIGNAL FILTERS                           ║
@@ -56,49 +53,12 @@ useBtcTrendFilter     = input.bool(false,  title="Enable BTC Trend Filter (Crypt
 emaProximityThreshold = input.float(0.5, minval=0.01, step=0.01, title="Sideways Threshold %", group="Advanced", tooltip="EMAs closer than this % = sideways. Default 0.5%")
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║                    RISK MANAGEMENT                          ║
-// ╚══════════════════════════════════════════════════════════════╝
-useStopLoss      = input.bool(true,  title="Enable Stop Loss", group="Risk Management")
-slType           = input.string("ATR", title="Stop Loss Type", options=["ATR", "Percent", "Swing"], group="Risk Management")
-atrLen           = input.int(14, minval=1, title="ATR Length", group="Risk Management")
-atrSlMultiplier  = input.float(2.0, minval=0.1, step=0.1, title="ATR SL Multiplier", group="Risk Management")
-slPercent        = input.float(2.0, minval=0.1, step=0.1, title="Stop Loss % (if Percent)", group="Risk Management")
-swingLookback    = input.int(10, minval=2, title="Swing Lookback Bars (if Swing)", group="Risk Management")
-
-useTakeProfit    = input.bool(true,  title="Enable Take Profit", group="Risk Management")
-tpType           = input.string("Risk:Reward", title="Take Profit Type", options=["Risk:Reward", "ATR", "Percent"], group="Risk Management")
-rrRatio          = input.float(2.0, minval=0.5, step=0.5, title="Risk:Reward Ratio", group="Risk Management")
-atrTpMultiplier  = input.float(3.0, minval=0.1, step=0.1, title="ATR TP Multiplier", group="Risk Management")
-tpPercent        = input.float(4.0, minval=0.1, step=0.1, title="Take Profit % (if Percent)", group="Risk Management")
-
-useTrailingStop  = input.bool(false, title="Enable Trailing Stop", group="Risk Management")
-trailType        = input.string("ATR", title="Trailing Stop Type", options=["ATR", "Percent"], group="Risk Management")
-atrTrailMult     = input.float(1.5, minval=0.1, step=0.1, title="ATR Trail Multiplier", group="Risk Management")
-trailPercent     = input.float(1.5, minval=0.1, step=0.1, title="Trail % (if Percent)", group="Risk Management")
-
-// ╔══════════════════════════════════════════════════════════════╗
-// ║              POSITION SIZING & TRADE DIRECTION              ║
-// ╚══════════════════════════════════════════════════════════════╝
-tradeDirection = input.string("Both", title="Trade Direction", options=["Long", "Short", "Both"], group="Position")
-exitOnCross    = input.bool(true, title="Exit on EMA Death/Golden Cross", group="Position")
-
-// ╔══════════════════════════════════════════════════════════════╗
-// ║              DATE RANGE FILTER (BACKTESTING)                ║
-// ╚══════════════════════════════════════════════════════════════╝
-useDateFilter  = input.bool(false, title="Enable Date Range Filter", group="Backtest Range")
-startDate      = input.time(timestamp("2020-01-01"), title="Start Date", group="Backtest Range")
-endDate        = input.time(timestamp("2030-12-31"), title="End Date",   group="Backtest Range")
-inDateRange    = not useDateFilter or (time >= startDate and time <= endDate)
-
-// ╔══════════════════════════════════════════════════════════════╗
 // ║                    CORE CALCULATIONS                        ║
 // ╚══════════════════════════════════════════════════════════════╝
 
 // === Real Price (standard candles — works correctly on Heikin Ashi charts) ===
 realClose = request.security(syminfo.tickerid, timeframe.period, close, lookahead=barmerge.lookahead_on)
 realOpen  = request.security(syminfo.tickerid, timeframe.period, open,  lookahead=barmerge.lookahead_on)
-realHigh  = request.security(syminfo.tickerid, timeframe.period, high,  lookahead=barmerge.lookahead_on)
-realLow   = request.security(syminfo.tickerid, timeframe.period, low,   lookahead=barmerge.lookahead_on)
 
 // === EMAs ===
 emaFast = ta.ema(realClose, fastLen)
@@ -107,9 +67,6 @@ emaSlow = ta.ema(realClose, slowLen)
 pFast = plot(emaFast, color=fastColor, title="Fast EMA", linewidth=2)
 pSlow = plot(emaSlow, color=slowColor, title="Slow EMA", linewidth=2)
 fill(pFast, pSlow, color=showEmaFill ? (emaFast > emaSlow ? color.new(color.green, 88) : color.new(color.red, 88)) : na, title="EMA Ribbon")
-
-// === ATR ===
-atrValue = ta.atr(atrLen)
 
 // === Volume Filter ===
 volumeOk = not useVolumeFilter or (volume > ta.sma(volume, 20))
@@ -150,35 +107,31 @@ dxyClose  = request.security("TVC:DXY", "D", close, lookahead=barmerge.lookahead
 dxyEma    = request.security("TVC:DXY", "D", ta.ema(close, 20), lookahead=barmerge.lookahead_on)
 dxyRising = not na(dxyClose) and (dxyClose > dxyEma)
 
-// DXY logic: rising dollar blocks longs for crypto; for stocks, less strict
 dxyBuyOk  = not useDxyFilter or dxyMode == "Disabled" or na(dxyClose) ? true : dxyMode == "Auto" ? (isCrypto ? not dxyRising : true) : not dxyRising
-dxySellOk = true  // rising dollar doesn't block shorts
+dxySellOk = true
 
-// === BTC Dominance — for altcoins only (ETH, XRP, etc.) ===
+// === BTC Dominance — for altcoins only ===
 btcDomClose   = request.security("CRYPTOCAP:BTC.D", "D", close, lookahead=barmerge.lookahead_on)
 btcDomEma     = request.security("CRYPTOCAP:BTC.D", "D", ta.ema(close, btcDomLen), lookahead=barmerge.lookahead_on)
 btcDomRising  = not na(btcDomClose) and (btcDomClose > btcDomEma)
 isBtcItself   = str.contains(str.upper(syminfo.ticker), "BTC") and not str.contains(str.upper(syminfo.ticker), "BTC.D")
 
-// Rising BTC.D blocks altcoin longs (money flowing to BTC, not alts)
 btcDomBuyOk   = not useBtcDomFilter or not isCrypto or isBtcItself or na(btcDomClose) or not btcDomRising
-btcDomSellOk  = true  // doesn't block shorts
+btcDomSellOk  = true
 
 // === SPY / QQQ Market Regime — for stocks ===
 spyClose  = request.security("AMEX:SPY", "D", close, lookahead=barmerge.lookahead_on)
 spyEma    = request.security("AMEX:SPY", "D", ta.ema(close, spyEmaLen), lookahead=barmerge.lookahead_on)
 spyAboveEma = not na(spyClose) and (spyClose > spyEma)
 
-// SPY above its EMA = risk-on, allow stock longs
 spyBuyOk  = not useSpyFilter or not isStock or na(spyClose) or spyAboveEma
-spySellOk = not useSpyFilter or not isStock or na(spyClose) or not spyAboveEma  // risk-off favors shorts
+spySellOk = not useSpyFilter or not isStock or na(spyClose) or not spyAboveEma
 
 // === BTC Trend — for altcoins: BTC must be bullish ===
 btcFastEma = request.security("BINANCE:BTCUSDT", "D", ta.ema(close, 50),  lookahead=barmerge.lookahead_on)
 btcSlowEma = request.security("BINANCE:BTCUSDT", "D", ta.ema(close, 200), lookahead=barmerge.lookahead_on)
 btcBullish = not na(btcFastEma) and (btcFastEma > btcSlowEma)
 
-// Only blocks altcoin longs when BTC trend is bearish
 btcTrendBuyOk  = not useBtcTrendFilter or not isCrypto or isBtcItself or na(btcFastEma) or btcBullish
 btcTrendSellOk = true
 
@@ -223,16 +176,12 @@ mktBuyOk  = vixOk and dxyBuyOk  and btcDomBuyOk  and spyBuyOk  and btcTrendBuyOk
 mktSellOk = vixOk and dxySellOk and btcDomSellOk and spySellOk and btcTrendSellOk
 
 // --- Slow EMA signals ---
-greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk  and inDateRange
-redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk and inDateRange
+greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk
+redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk
 
 // --- Fast EMA signals ---
-greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk  and inDateRange
-redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk and inDateRange
-
-// --- Combined entry signals ---
-longEntry  = (greenTriangle or greenCircle) and (tradeDirection == "Long" or tradeDirection == "Both")
-shortEntry = (redTriangle or redCircle)     and (tradeDirection == "Short" or tradeDirection == "Both")
+greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk  and mktBuyOk
+redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk and mktSellOk
 
 // === Update cooldown ===
 if greenTriangle or greenCircle
@@ -241,100 +190,14 @@ if redTriangle or redCircle
     lastRedBar := bar_index
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║                STOP LOSS / TAKE PROFIT CALC                 ║
+// ║                    SIGNAL COUNTERS                          ║
 // ╚══════════════════════════════════════════════════════════════╝
-// --- Stop Loss distance ---
-f_slDistance(isLong) =>
-    if slType == "ATR"
-        atrValue * atrSlMultiplier
-    else if slType == "Percent"
-        realClose * slPercent / 100.0
-    else // Swing
-        if isLong
-            realClose - ta.lowest(realLow, swingLookback)
-        else
-            ta.highest(realHigh, swingLookback) - realClose
-
-// --- Take Profit distance ---
-f_tpDistance(slDist) =>
-    if tpType == "Risk:Reward"
-        slDist * rrRatio
-    else if tpType == "ATR"
-        atrValue * atrTpMultiplier
-    else // Percent
-        realClose * tpPercent / 100.0
-
-// --- Trailing stop offset ---
-f_trailOffset() =>
-    if trailType == "ATR"
-        atrValue * atrTrailMult
-    else
-        realClose * trailPercent / 100.0
-
-// ╔══════════════════════════════════════════════════════════════╗
-// ║                    STRATEGY EXECUTION                       ║
-// ╚══════════════════════════════════════════════════════════════╝
-
-// === Long Entry ===
-if longEntry and strategy.position_size == 0
-    slDist = f_slDistance(true)
-    tpDist = f_tpDistance(slDist)
-    
-    slPrice = useStopLoss   ? realClose - slDist : na
-    tpPrice = useTakeProfit ? realClose + tpDist : na
-    
-    strategy.entry("Long", strategy.long)
-    
-    if useStopLoss and useTakeProfit
-        strategy.exit("Long Exit", "Long", stop=slPrice, limit=tpPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useStopLoss
-        strategy.exit("Long SL", "Long", stop=slPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useTakeProfit
-        strategy.exit("Long TP", "Long", limit=tpPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useTrailingStop
-        strategy.exit("Long Trail", "Long",
-             trail_points=f_trailOffset() / syminfo.mintick,
-             trail_offset=f_trailOffset() / syminfo.mintick)
-
-// === Short Entry ===
-if shortEntry and strategy.position_size == 0
-    slDist = f_slDistance(false)
-    tpDist = f_tpDistance(slDist)
-    
-    slPrice = useStopLoss   ? realClose + slDist : na
-    tpPrice = useTakeProfit ? realClose - tpDist : na
-    
-    strategy.entry("Short", strategy.short)
-    
-    if useStopLoss and useTakeProfit
-        strategy.exit("Short Exit", "Short", stop=slPrice, limit=tpPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useStopLoss
-        strategy.exit("Short SL", "Short", stop=slPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useTakeProfit
-        strategy.exit("Short TP", "Short", limit=tpPrice,
-             trail_points=useTrailingStop ? f_trailOffset() / syminfo.mintick : na,
-             trail_offset=useTrailingStop ? f_trailOffset() / syminfo.mintick : na)
-    else if useTrailingStop
-        strategy.exit("Short Trail", "Short",
-             trail_points=f_trailOffset() / syminfo.mintick,
-             trail_offset=f_trailOffset() / syminfo.mintick)
-
-// === Exit on EMA Cross (trend reversal) ===
-if exitOnCross
-    if deathCross and strategy.position_size > 0
-        strategy.close("Long", comment="Death Cross Exit")
-    if goldenCross and strategy.position_size < 0
-        strategy.close("Short", comment="Golden Cross Exit")
+var int totalBuySignals  = 0
+var int totalSellSignals = 0
+if greenTriangle or greenCircle
+    totalBuySignals += 1
+if redTriangle or redCircle
+    totalSellSignals += 1
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    VISUAL PLOTS                             ║
@@ -365,48 +228,44 @@ plotshape(redCircle and showFastEmaPriceCrossSignals, title="Bearish Price Cross
 bgcolor(showTrendBg ? (isBullTrend ? color.new(color.green, 95) : isBearTrend ? color.new(color.red, 95) : na) : na, title="Trend Background")
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║                  PERFORMANCE DASHBOARD                      ║
+// ║                    INFO PANEL                               ║
 // ╚══════════════════════════════════════════════════════════════╝
-if showDashboard and barstate.islastconfirmedhistory
-    var table dash = table.new(position.top_right, 2, 13, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
+if showInfoPanel and barstate.islast
+    var table panel = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
 
-    totalTrades  = strategy.closedtrades
-    winTrades    = strategy.wintrades
-    lossTrades   = strategy.losstrades
-    winRate      = totalTrades > 0 ? (winTrades / totalTrades) * 100 : 0.0
-    netProfit    = strategy.netprofit
-    netProfitPct = strategy.netprofit_percent
-    maxDD        = strategy.max_drawdown
-    profitFactor = strategy.grossloss != 0 ? math.abs(strategy.grossprofit / strategy.grossloss) : 0.0
+    trendStr    = isBullTrend ? "BULLISH" : isBearTrend ? "BEARISH" : "NEUTRAL"
+    trendClr    = isBullTrend ? color.lime : isBearTrend ? color.red : color.gray
+    spreadStr   = str.tostring(emaSpreadPercent * 100, "#.3") + "%"
+    slopeStr    = emaSlow > emaSlow[10] ? "UP" : emaSlow < emaSlow[10] ? "DOWN" : "FLAT"
+    rsiStr      = str.tostring(rsiValue, "#.1")
+    htfStr      = useHtfFilter ? (htfFast > htfSlow ? "BULL" : "BEAR") : "OFF"
 
-    table.cell(dash, 0, 0, "Metric",        text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(dash, 1, 0, "Value",          text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(dash, 0, 1, "Total Trades",   text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 1, str.tostring(totalTrades),  text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 2, "Win Rate",       text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 2, str.tostring(winRate, "#.1") + "%", text_color=winRate >= 50 ? color.lime : color.orange, text_size=size.small)
-    table.cell(dash, 0, 3, "Wins / Losses",  text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 3, str.tostring(winTrades) + " / " + str.tostring(lossTrades), text_color=color.white, text_size=size.small)
-    table.cell(dash, 0, 4, "Net Profit",     text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 4, str.tostring(netProfit, "#.2"), text_color=netProfit >= 0 ? color.lime : color.red, text_size=size.small)
-    table.cell(dash, 0, 5, "Net Profit %",   text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 5, str.tostring(netProfitPct, "#.2") + "%", text_color=netProfitPct >= 0 ? color.lime : color.red, text_size=size.small)
-    table.cell(dash, 0, 6, "Max Drawdown",   text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 6, str.tostring(maxDD, "#.2"), text_color=color.red, text_size=size.small)
-    table.cell(dash, 0, 7, "Profit Factor",  text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 7, str.tostring(profitFactor, "#.2"), text_color=profitFactor >= 1.5 ? color.lime : profitFactor >= 1.0 ? color.yellow : color.red, text_size=size.small)
+    table.cell(panel, 0, 0, "Metric",       text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(panel, 1, 0, "Value",         text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(panel, 0, 1, "Trend",         text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 1, trendStr,        text_color=trendClr,    text_size=size.small)
+    table.cell(panel, 0, 2, "EMA Spread",    text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 2, spreadStr,       text_color=isSideways ? color.orange : color.white, text_size=size.small)
+    table.cell(panel, 0, 3, "EMA Slope",     text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 3, slopeStr,        text_color=slopeStr == "UP" ? color.lime : slopeStr == "DOWN" ? color.red : color.gray, text_size=size.small)
+    table.cell(panel, 0, 4, "RSI (14)",      text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 4, rsiStr,          text_color=rsiValue > 70 ? color.red : rsiValue < 30 ? color.lime : color.white, text_size=size.small)
+    table.cell(panel, 0, 5, "HTF Trend",     text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 5, htfStr,          text_color=htfStr == "BULL" ? color.lime : htfStr == "BEAR" ? color.red : color.gray, text_size=size.small)
+    table.cell(panel, 0, 6, "Signals B / S", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 6, str.tostring(totalBuySignals) + " / " + str.tostring(totalSellSignals), text_color=color.white, text_size=size.small)
 
     // --- Market Context rows ---
-    table.cell(dash, 0, 8, "",               text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(dash, 1, 8, "Market Context", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(dash, 0, 9, "VIX",            text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 9, na(vixClose) ? "N/A" : str.tostring(vixClose, "#.1"), text_color=useVixFilter ? (vixOk ? color.lime : color.red) : color.gray, text_size=size.small)
-    table.cell(dash, 0, 10, "DXY",           text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 10, dxyRising ? "RISING" : "FALLING", text_color=useDxyFilter ? (dxyRising ? color.red : color.lime) : color.gray, text_size=size.small)
-    table.cell(dash, 0, 11, "BTC.D",         text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 11, btcDomRising ? "RISING" : "FALLING", text_color=useBtcDomFilter and isCrypto ? (btcDomRising ? color.red : color.lime) : color.gray, text_size=size.small)
-    table.cell(dash, 0, 12, "SPY Regime",    text_color=color.white, text_size=size.small)
-    table.cell(dash, 1, 12, spyAboveEma ? "RISK-ON" : "RISK-OFF", text_color=useSpyFilter and isStock ? (spyAboveEma ? color.lime : color.red) : color.gray, text_size=size.small)
+    table.cell(panel, 0, 7, "",              text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(panel, 1, 7, "Market Context", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(panel, 0, 8, "VIX",           text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 8, na(vixClose) ? "N/A" : str.tostring(vixClose, "#.1"), text_color=useVixFilter ? (vixOk ? color.lime : color.red) : color.gray, text_size=size.small)
+    table.cell(panel, 0, 9, "DXY",           text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 9, dxyRising ? "RISING" : "FALLING", text_color=useDxyFilter ? (dxyRising ? color.red : color.lime) : color.gray, text_size=size.small)
+    table.cell(panel, 0, 10, "BTC.D",        text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 10, btcDomRising ? "RISING" : "FALLING", text_color=useBtcDomFilter and isCrypto ? (btcDomRising ? color.red : color.lime) : color.gray, text_size=size.small)
+    table.cell(panel, 0, 11, "SPY Regime",   text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 11, spyAboveEma ? "RISK-ON" : "RISK-OFF", text_color=useSpyFilter and isStock ? (spyAboveEma ? color.lime : color.red) : color.gray, text_size=size.small)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    ALERT CONDITIONS                         ║

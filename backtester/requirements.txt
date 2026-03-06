@@ -1,0 +1,4 @@
+twelvedata>=1.2
+pandas>=2.0
+numpy>=1.24
+tabulate>=0.9
