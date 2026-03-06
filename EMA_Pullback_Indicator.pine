@@ -8,7 +8,7 @@ indicator("EMA Pullback Entry Signals", overlay=true, max_labels_count=500)
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
 // ╚══════════════════════════════════════════════════════════════╝
-preset = input.string("Custom", title="Preset", options=["Custom", "BTC Optimized", "ETH Optimized"], group="⚡ Preset", tooltip="Backtested presets auto-set EMA lengths & filters. Choose 'Custom' to use your own settings below.")
+preset = input.string("Custom", title="Preset", options=["Custom", "BTC Optimized", "ETH Optimized"], group="⚡ Preset", tooltip="Backtested presets auto-set EMA lengths & force ALL filters ON (including RSI). Individual filter toggles below are ignored when a preset is active. Choose 'Custom' to use your own settings.")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    EMA & DISPLAY INPUTS                     ║
@@ -46,10 +46,16 @@ emaProximityThreshold = input.float(0.5, minval=0.01, step=0.01, title="Sideways
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET OVERRIDES                         ║
 // ╚══════════════════════════════════════════════════════════════╝
-// BTC Optimized:  EMA(50/200), all filters ON + RSI — PF 2.33, +99% PnL
-// ETH Optimized:  EMA(20/200), all filters ON + RSI — PF 1.47, +61% PnL
+// BTC Optimized:  EMA(50/200), all filters ON + RSI — re-backtest for updated PF/PnL
+// ETH Optimized:  EMA(20/200), all filters ON + RSI — re-backtest for updated PF/PnL
+isPreset     = preset != "Custom"
 fastLen      = preset == "BTC Optimized" ? 50  : preset == "ETH Optimized" ? 20  : fastLen_i
-useRsiFilter = preset != "Custom" ? true : useRsiFilter_i
+useRsiFilter = isPreset ? true : useRsiFilter_i
+useCooldown_f      = isPreset ? true : useCooldown
+filterSideways_f   = isPreset ? true : filterSideways
+useVolumeFilter_f  = isPreset ? true : useVolumeFilter
+useCandleConfirm_f = isPreset ? true : useCandleConfirm
+useSlopeFilter_f   = isPreset ? true : useSlopeFilter
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    CORE CALCULATIONS                        ║
@@ -68,7 +74,7 @@ pSlow = plot(emaSlow, color=slowColor, title="Slow EMA", linewidth=2)
 fill(pFast, pSlow, color=showEmaFill ? (emaFast > emaSlow ? color.new(color.green, 88) : color.new(color.red, 88)) : na, title="EMA Ribbon")
 
 // === Volume Filter ===
-volumeOk = not useVolumeFilter or (volume > ta.sma(volume, 20))
+volumeOk = not useVolumeFilter_f or (volume > ta.sma(volume, 20))
 
 // === RSI Filter ===
 rsiValue  = ta.rsi(realClose, 14)
@@ -82,12 +88,12 @@ htfBullOk = not useHtfFilter or (htfFast > htfSlow)
 htfBearOk = not useHtfFilter or (htfFast < htfSlow)
 
 // === Candle Confirmation ===
-candleBuyOk  = not useCandleConfirm or (realClose > realOpen)
-candleSellOk = not useCandleConfirm or (realClose < realOpen)
+candleBuyOk  = not useCandleConfirm_f or (realClose > realOpen)
+candleSellOk = not useCandleConfirm_f or (realClose < realOpen)
 
 // === EMA Slope Filter (10-bar lookback) ===
-slopeBuyOk  = not useSlopeFilter or (emaSlow > emaSlow[10])
-slopeSellOk = not useSlopeFilter or (emaSlow < emaSlow[10])
+slopeBuyOk  = not useSlopeFilter_f or (emaSlow > emaSlow[10])
+slopeSellOk = not useSlopeFilter_f or (emaSlow < emaSlow[10])
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    CROSS DETECTION                          ║
@@ -117,13 +123,13 @@ priceCrossDownFast = (realClose[1] > emaFast[1]) and realClose < emaFast
 var int lastGreenBar = na
 var int lastRedBar   = na
 
-greenAllowed = not useCooldown or na(lastGreenBar) or (bar_index - lastGreenBar > 3)
-redAllowed   = not useCooldown or na(lastRedBar)   or (bar_index - lastRedBar > 3)
+greenAllowed = not useCooldown_f or na(lastGreenBar) or (bar_index - lastGreenBar > 3)
+redAllowed   = not useCooldown_f or na(lastRedBar)   or (bar_index - lastRedBar > 3)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    SIGNAL CONDITIONS                        ║
 // ╚══════════════════════════════════════════════════════════════╝
-sidewaysOk = not filterSideways or not isSideways
+sidewaysOk = not filterSideways_f or not isSideways
 
 // --- Slow EMA signals ---
 greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk
@@ -181,7 +187,7 @@ bgcolor(showTrendBg ? (isBullTrend ? color.new(color.green, 95) : isBearTrend ? 
 // ║                    INFO PANEL                               ║
 // ╚══════════════════════════════════════════════════════════════╝
 if showInfoPanel and barstate.islast
-    var table panel = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
+    var table panel = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 30), border_width=1, border_color=color.gray)
 
     trendStr    = isBullTrend ? "BULLISH" : isBearTrend ? "BEARISH" : "NEUTRAL"
     trendClr    = isBullTrend ? color.lime : isBearTrend ? color.red : color.gray
@@ -192,18 +198,20 @@ if showInfoPanel and barstate.islast
 
     table.cell(panel, 0, 0, "Metric",       text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
     table.cell(panel, 1, 0, "Value",         text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
-    table.cell(panel, 0, 1, "Trend",         text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 1, trendStr,        text_color=trendClr,    text_size=size.small)
-    table.cell(panel, 0, 2, "EMA Spread",    text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 2, spreadStr,       text_color=isSideways ? color.orange : color.white, text_size=size.small)
-    table.cell(panel, 0, 3, "EMA Slope",     text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 3, slopeStr,        text_color=slopeStr == "UP" ? color.lime : slopeStr == "DOWN" ? color.red : color.gray, text_size=size.small)
-    table.cell(panel, 0, 4, "RSI (14)",      text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 4, rsiStr,          text_color=rsiValue > 70 ? color.red : rsiValue < 30 ? color.lime : color.white, text_size=size.small)
-    table.cell(panel, 0, 5, "HTF Trend",     text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 5, htfStr,          text_color=htfStr == "BULL" ? color.lime : htfStr == "BEAR" ? color.red : color.gray, text_size=size.small)
-    table.cell(panel, 0, 6, "Signals B / S", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 6, str.tostring(totalBuySignals) + " / " + str.tostring(totalSellSignals), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 1, "Preset",        text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 1, preset,          text_color=isPreset ? color.yellow : color.gray, text_size=size.small)
+    table.cell(panel, 0, 2, "Trend",         text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 2, trendStr,        text_color=trendClr,    text_size=size.small)
+    table.cell(panel, 0, 3, "EMA Spread",    text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 3, spreadStr,       text_color=isSideways ? color.orange : color.white, text_size=size.small)
+    table.cell(panel, 0, 4, "EMA Slope",     text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 4, slopeStr,        text_color=slopeStr == "UP" ? color.lime : slopeStr == "DOWN" ? color.red : color.gray, text_size=size.small)
+    table.cell(panel, 0, 5, "RSI (14)",      text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 5, rsiStr,          text_color=rsiValue > 70 ? color.red : rsiValue < 30 ? color.lime : color.white, text_size=size.small)
+    table.cell(panel, 0, 6, "HTF Trend",     text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 6, htfStr,          text_color=htfStr == "BULL" ? color.lime : htfStr == "BEAR" ? color.red : color.gray, text_size=size.small)
+    table.cell(panel, 0, 7, "Signals B / S", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 7, str.tostring(totalBuySignals) + " / " + str.tostring(totalSellSignals), text_color=color.white, text_size=size.small)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    ALERT CONDITIONS                         ║
