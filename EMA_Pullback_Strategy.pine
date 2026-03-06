@@ -6,7 +6,7 @@ strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percen
 //Created By: Wooanaz
 //Created On: 8/8/2025
 //Modified On: 3/6/2026
-//Version: 3.4.0
+//Version: 3.5.0
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
@@ -16,7 +16,7 @@ preset = input.string("Custom", title="Preset", options=["Custom", "BTC (Daily)"
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    WEBHOOK CONFIG                           ║
 // ╚══════════════════════════════════════════════════════════════╝
-tvSecret = input.string("59561470-c743-4417-a3cb-120d912ebd58", title="Webhook Secret", group="⚡ Webhook", tooltip="Must match TV_SECRET in your Hatchet API settings")
+tvSecret = input.string("59561470-c743-4417-a3cb-120d912ebd58", title="Webhook Secret", group="⚡ Webhook", tooltip="Must match Webhook:Secret in your TradeSmart API settings")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    EMA & DISPLAY INPUTS                     ║
@@ -311,51 +311,16 @@ f_trailOffset() =>
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    WEBHOOK JSON BUILDER                     ║
+// ║  Matches TradeSmart API TradingViewAlertRequestDto          ║
 // ╚══════════════════════════════════════════════════════════════╝
-volSmaVal  = ta.sma(volume, 20)
-volRelVal  = nz(volume / volSmaVal, 1.0)
-htfFlagStr = not useHtfFilter ? "0" : htfFast > htfSlow ? "1" : htfFast < htfSlow ? "-1" : "0"
-trendStr   = isBullTrend ? "bullish" : isBearTrend ? "bearish" : "neutral"
-
 webhookJson = '{' +
-     '"ver":1,' +
-     '"source":"tradingview",' +
-     '"secret":"' + tvSecret + '",' +
-     '"signal":"EMA_PULLBACK",' +
      '"symbol":"' + syminfo.ticker + '",' +
      '"exchange":"' + syminfo.prefix + '",' +
+     '"action":"{{strategy.order.action}}",' +
+     '"price":' + str.tostring(realClose) + ',' +
      '"interval":"' + timeframe.period + '",' +
-     '"ohlcv":{' +
-         '"o":' + str.tostring(realOpen) + ',' +
-         '"h":' + str.tostring(realHigh) + ',' +
-         '"l":' + str.tostring(realLow) + ',' +
-         '"c":' + str.tostring(realClose) + ',' +
-         '"v":' + str.tostring(volume) +
-     '},' +
-     '"strategy":{' +
-         '"action":"{{strategy.order.action}}",' +
-         '"orderPrice":{{strategy.order.price}},' +
-         '"orderContracts":{{strategy.order.contracts}},' +
-         '"marketPosition":"{{strategy.market_position}}",' +
-         '"prevMarketPosition":"{{strategy.prev_market_position}}",' +
-         '"positionSize":{{strategy.position_size}},' +
-         '"positionAvgPrice":{{strategy.position_avg_price}}' +
-     '},' +
-     '"plots":{' +
-         '"emaFast":' + str.tostring(emaFast) + ',' +
-         '"emaSlow":' + str.tostring(emaSlow) + ',' +
-         '"emaFastHTF":' + str.tostring(nz(htfFast)) + ',' +
-         '"emaSlowHTF":' + str.tostring(nz(htfSlow)) +
-     '},' +
-     '"context":{' +
-         '"trend":"' + trendStr + '",' +
-         '"filterSideways":"' + (filterSideways ? "1" : "0") + '",' +
-         '"isSideways":"' + (isSideways ? "1" : "0") + '",' +
-         '"atr14":' + str.tostring(atrValue) + ',' +
-         '"volSma":' + str.tostring(nz(volSmaVal)) + ',' +
-         '"volRel":' + str.tostring(math.round(volRelVal, 2)) + ',' +
-         '"htfTrendFlag":"' + htfFlagStr + '"' +
-     '}' +
+     '"message":"EMA Pullback ' + (isBullTrend ? 'Long' : isBearTrend ? 'Short' : 'Signal') + ' — {{strategy.market_position}}",' +
+     '"secret":"' + tvSecret + '"' +
      '}'
 
 // ╔══════════════════════════════════════════════════════════════╗
