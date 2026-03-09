@@ -1,12 +1,12 @@
 //@version=5
 strategy("EMA Pullback Strategy", overlay=true, default_qty_type=strategy.percent_of_equity,
-     default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent,
+     default_qty_value=75, initial_capital=1000, commission_type=strategy.commission.percent,
      commission_value=0.04, slippage=1, pyramiding=0, calc_on_every_tick=false,
      process_orders_on_close=false)
 //Created By: Wooanaz
 //Created On: 8/8/2025
-//Modified On: 3/6/2026
-//Version: 3.6.0
+//Modified On: 3/9/2026
+//Version: 3.7.0
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    PRESET SELECTOR                          ║
@@ -90,7 +90,15 @@ trailPercent     = input.float(1.5, minval=0.1, step=0.1, title="Trail % (if Per
 // ║              POSITION SIZING & TRADE DIRECTION              ║
 // ╚══════════════════════════════════════════════════════════════╝
 tradeDirection = input.string("Both", title="Trade Direction", options=["Long", "Short", "Both"], group="Position")
-exitOnCross    = input.bool(true, title="Exit on EMA Death/Golden Cross", group="Position")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    EXIT STRATEGY                            ║
+// ╚══════════════════════════════════════════════════════════════╝
+exitMode           = input.string("Chandelier", title="Exit Strategy", options=["Death Cross", "Close Below Fast EMA", "Chandelier", "Chandelier + Fast EMA"], group="Exit Strategy", tooltip="Death Cross = legacy slow EMA cross (very lagging). Close Below Fast EMA = reacts much faster to pullbacks. Chandelier = ATR trailing stop from highest high since entry. Combined = whichever fires first.")
+chandelierExitLen  = input.int(22, title="Chandelier ATR Length", minval=1, group="Exit Strategy", tooltip="ATR period for Chandelier trailing stop (classic: 22)")
+chandelierExitMult = input.float(3.0, title="Chandelier ATR Multiplier", minval=0.5, step=0.5, group="Exit Strategy", tooltip="Higher = wider stop, fewer whipsaws. Lower = tighter, locks profits faster. Classic: 3.0")
+exitBarsBelow      = input.int(1, title="Consecutive Bars Below Fast EMA", minval=1, maxval=5, group="Exit Strategy", tooltip="For 'Close Below Fast EMA' modes. 1 = exit on first close below. 2+ = reduces whipsaws.")
+showChandelierStop = input.bool(true, title="Show Chandelier Stop Line", group="Exit Strategy")
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║              DATE RANGE FILTER (BACKTESTING)                ║
@@ -243,6 +251,60 @@ priceCrossUpFast   = (realClose[1] < emaFast[1]) and realClose > emaFast
 priceCrossDownFast = (realClose[1] > emaFast[1]) and realClose < emaFast
 
 // ╔══════════════════════════════════════════════════════════════╗
+// ║                    EXIT CALCULATIONS                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === Chandelier Exit — ATR trailing stop from highest high since entry ===
+chandelierAtr = ta.atr(chandelierExitLen)
+var float highestSinceEntry = na
+var float lowestSinceEntry  = na
+
+if strategy.position_size > 0
+    highestSinceEntry := math.max(nz(highestSinceEntry, realHigh), realHigh)
+    lowestSinceEntry  := na
+else if strategy.position_size < 0
+    lowestSinceEntry  := math.min(nz(lowestSinceEntry, realLow), realLow)
+    highestSinceEntry := na
+else
+    highestSinceEntry := na
+    lowestSinceEntry  := na
+
+chandelierLongStop  = not na(highestSinceEntry) ? highestSinceEntry - chandelierAtr * chandelierExitMult : na
+chandelierShortStop = not na(lowestSinceEntry)  ? lowestSinceEntry  + chandelierAtr * chandelierExitMult : na
+
+// === Consecutive closes beyond Fast EMA ===
+var int barsCloseBelow = 0
+var int barsCloseAbove = 0
+
+if realClose < emaFast
+    barsCloseBelow := barsCloseBelow + 1
+    barsCloseAbove := 0
+else if realClose > emaFast
+    barsCloseAbove := barsCloseAbove + 1
+    barsCloseBelow := 0
+else
+    barsCloseBelow := 0
+    barsCloseAbove := 0
+
+fastEmaBelowExit = barsCloseBelow >= exitBarsBelow
+fastEmaAboveExit = barsCloseAbove >= exitBarsBelow
+
+// === Exit signals per mode ===
+longExitSignal = switch exitMode
+    "Death Cross"           => deathCross
+    "Close Below Fast EMA"  => fastEmaBelowExit and strategy.position_size > 0
+    "Chandelier"            => not na(chandelierLongStop) and realClose < chandelierLongStop and strategy.position_size > 0
+    "Chandelier + Fast EMA" => ((not na(chandelierLongStop) and realClose < chandelierLongStop) or fastEmaBelowExit) and strategy.position_size > 0
+    => false
+
+shortExitSignal = switch exitMode
+    "Death Cross"           => goldenCross
+    "Close Below Fast EMA"  => fastEmaAboveExit and strategy.position_size < 0
+    "Chandelier"            => not na(chandelierShortStop) and realClose > chandelierShortStop and strategy.position_size < 0
+    "Chandelier + Fast EMA" => ((not na(chandelierShortStop) and realClose > chandelierShortStop) or fastEmaAboveExit) and strategy.position_size < 0
+    => false
+
+// ╔══════════════════════════════════════════════════════════════╗
 // ║                    COOLDOWN LOGIC                           ║
 // ╚══════════════════════════════════════════════════════════════╝
 var int lastGreenBar = na
@@ -324,8 +386,8 @@ f_baseJson() =>
      '"interval":"' + timeframe.period + '",' +
      '"secret":"' + tvSecret + '"'
 
-closeLongJson  = '{' + f_baseJson() + ',"type":"close","message":"Death Cross — closing Long"}'
-closeShortJson = '{' + f_baseJson() + ',"type":"close","message":"Golden Cross — closing Short"}'
+closeLongJson  = '{' + f_baseJson() + ',"type":"close","message":"' + exitMode + ' — closing Long"}'
+closeShortJson = '{' + f_baseJson() + ',"type":"close","message":"' + exitMode + ' — closing Short"}'
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    STRATEGY EXECUTION                       ║
@@ -399,12 +461,11 @@ if shortEntry and strategy.position_size == 0
              trail_points=f_trailOffset() / syminfo.mintick,
              trail_offset=f_trailOffset() / syminfo.mintick)
 
-// === Exit on EMA Cross (trend reversal) ===
-if exitOnCross
-    if deathCross and strategy.position_size > 0
-        strategy.close("Long", comment="Death Cross Exit", alert_message=closeLongJson)
-    if goldenCross and strategy.position_size < 0
-        strategy.close("Short", comment="Golden Cross Exit", alert_message=closeShortJson)
+// === Trend Exit ===
+if longExitSignal
+    strategy.close("Long", comment=exitMode + " Exit", alert_message=closeLongJson)
+if shortExitSignal
+    strategy.close("Short", comment=exitMode + " Exit", alert_message=closeShortJson)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                    VISUAL PLOTS                             ║
@@ -433,6 +494,12 @@ plotshape(redCircle and showFastEmaPriceCrossSignals, title="Bearish Price Cross
 
 // === Trend Background ===
 bgcolor(showTrendBg ? (isBullTrend ? color.new(color.green, 95) : isBearTrend ? color.new(color.red, 95) : na) : na, title="Trend Background")
+
+// === Chandelier Stop Line ===
+plot(showChandelierStop and strategy.position_size > 0 ? chandelierLongStop : na,
+     title="Chandelier Long Stop", color=color.orange, linewidth=2, style=plot.style_cross)
+plot(showChandelierStop and strategy.position_size < 0 ? chandelierShortStop : na,
+     title="Chandelier Short Stop", color=color.orange, linewidth=2, style=plot.style_cross)
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║                  PERFORMANCE DASHBOARD                      ║

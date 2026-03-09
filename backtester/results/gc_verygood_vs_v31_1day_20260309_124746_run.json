@@ -1,0 +1,352 @@
+{
+  "timestamp": "2026-03-09T12:47:46.043367",
+  "interval": "1day",
+  "initial_capital": 1000.0,
+  "mode": "verygood_vs_v31",
+  "summary": [
+    {
+      "total": 17,
+      "wins": 9,
+      "losses": 8,
+      "win_rate": 52.9,
+      "avg_win": 16.93,
+      "avg_loss": -2.82,
+      "profit_factor": 6.76,
+      "total_pnl": 129.83,
+      "max_drawdown": 8.27,
+      "expectancy": 7.64,
+      "final_equity": 2980.05,
+      "compound_dd": 8.11,
+      "symbol": "BTC/USD",
+      "config": "v3.1 GC(4p/144/1.414) src=hlc3 StochRSI 100%eq"
+    },
+    {
+      "total": 17,
+      "wins": 9,
+      "losses": 8,
+      "win_rate": 52.9,
+      "avg_win": 16.93,
+      "avg_loss": -2.43,
+      "profit_factor": 7.84,
+      "total_pnl": 132.94,
+      "max_drawdown": 8.27,
+      "expectancy": 7.82,
+      "final_equity": 3079.47,
+      "compound_dd": 8.11,
+      "symbol": "BTC/USD",
+      "config": "v3.1 GC(4p/144/1.414) src=hlc3 StochRSI ATR_SL(1.5x) 100%eq"
+    }
+  ],
+  "trades": {
+    "BTC/USD [v3.1 GC(4p/144/1.414) src=hlc3 StochRSI 100%eq]": [
+      {
+        "side": "long",
+        "entry_price": 39137.61,
+        "entry_date": "2022-03-04",
+        "exit_price": 39521.9,
+        "exit_date": "2022-04-11",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 0.98
+      },
+      {
+        "side": "long",
+        "entry_price": 21086.79,
+        "entry_date": "2023-01-19",
+        "exit_price": 22353.35,
+        "exit_date": "2023-03-04",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 6.01
+      },
+      {
+        "side": "long",
+        "entry_price": 24746.07,
+        "entry_date": "2023-03-14",
+        "exit_price": 28091.57,
+        "exit_date": "2023-05-01",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 13.52
+      },
+      {
+        "side": "long",
+        "entry_price": 29534.38,
+        "entry_date": "2023-05-05",
+        "exit_price": 28454.98,
+        "exit_date": "2023-05-07",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -3.65
+      },
+      {
+        "side": "long",
+        "entry_price": 30590.08,
+        "entry_date": "2023-07-01",
+        "exit_price": 29176.92,
+        "exit_date": "2023-07-24",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -4.62
+      },
+      {
+        "side": "long",
+        "entry_price": 29918.41,
+        "entry_date": "2023-10-21",
+        "exit_price": 41796.27,
+        "exit_date": "2024-01-14",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 39.7
+      },
+      {
+        "side": "long",
+        "entry_price": 43154.95,
+        "entry_date": "2024-01-16",
+        "exit_price": 42742.65,
+        "exit_date": "2024-01-17",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -0.96
+      },
+      {
+        "side": "long",
+        "entry_price": 45301.57,
+        "entry_date": "2024-02-08",
+        "exit_price": 63821.47,
+        "exit_date": "2024-04-13",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 40.88
+      },
+      {
+        "side": "long",
+        "entry_price": 68802.52,
+        "entry_date": "2024-06-03",
+        "exit_price": 67316.53,
+        "exit_date": "2024-06-11",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -2.16
+      },
+      {
+        "side": "long",
+        "entry_price": 67628.96,
+        "entry_date": "2024-10-16",
+        "exit_price": 93563.35,
+        "exit_date": "2024-12-29",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 38.35
+      },
+      {
+        "side": "long",
+        "entry_price": 98209.85,
+        "entry_date": "2025-01-04",
+        "exit_price": 96941.98,
+        "exit_date": "2025-01-07",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -1.29
+      },
+      {
+        "side": "long",
+        "entry_price": 103926.36,
+        "entry_date": "2025-01-23",
+        "exit_price": 101290.0,
+        "exit_date": "2025-01-28",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -2.54
+      },
+      {
+        "side": "long",
+        "entry_price": 95861.33,
+        "entry_date": "2025-05-03",
+        "exit_price": 103317.8,
+        "exit_date": "2025-06-20",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 7.78
+      },
+      {
+        "side": "long",
+        "entry_price": 106141.0,
+        "entry_date": "2025-06-24",
+        "exit_price": 105711.78,
+        "exit_date": "2025-07-01",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -0.4
+      },
+      {
+        "side": "long",
+        "entry_price": 108888.32,
+        "entry_date": "2025-07-02",
+        "exit_price": 112542.74,
+        "exit_date": "2025-08-02",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 3.36
+      },
+      {
+        "side": "long",
+        "entry_price": 114215.73,
+        "entry_date": "2025-08-03",
+        "exit_price": 116286.76,
+        "exit_date": "2025-08-18",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 1.81
+      },
+      {
+        "side": "long",
+        "entry_price": 121393.95,
+        "entry_date": "2025-10-07",
+        "exit_price": 112980.28,
+        "exit_date": "2025-10-10",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -6.93
+      }
+    ],
+    "BTC/USD [v3.1 GC(4p/144/1.414) src=hlc3 StochRSI ATR_SL(1.5x) 100%eq]": [
+      {
+        "side": "long",
+        "entry_price": 39137.61,
+        "entry_date": "2022-03-04",
+        "exit_price": 39521.9,
+        "exit_date": "2022-04-11",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 0.98
+      },
+      {
+        "side": "long",
+        "entry_price": 21086.79,
+        "entry_date": "2023-01-19",
+        "exit_price": 22353.35,
+        "exit_date": "2023-03-04",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 6.01
+      },
+      {
+        "side": "long",
+        "entry_price": 24746.07,
+        "entry_date": "2023-03-14",
+        "exit_price": 28091.57,
+        "exit_date": "2023-05-01",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 13.52
+      },
+      {
+        "side": "long",
+        "entry_price": 29534.38,
+        "entry_date": "2023-05-05",
+        "exit_price": 28454.98,
+        "exit_date": "2023-05-07",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -3.65
+      },
+      {
+        "side": "long",
+        "entry_price": 30590.08,
+        "entry_date": "2023-07-01",
+        "exit_price": 29176.92,
+        "exit_date": "2023-07-24",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -4.62
+      },
+      {
+        "side": "long",
+        "entry_price": 29918.41,
+        "entry_date": "2023-10-21",
+        "exit_price": 41796.27,
+        "exit_date": "2024-01-14",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 39.7
+      },
+      {
+        "side": "long",
+        "entry_price": 43154.95,
+        "entry_date": "2024-01-16",
+        "exit_price": 42742.65,
+        "exit_date": "2024-01-17",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -0.96
+      },
+      {
+        "side": "long",
+        "entry_price": 45301.57,
+        "entry_date": "2024-02-08",
+        "exit_price": 63821.47,
+        "exit_date": "2024-04-13",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 40.88
+      },
+      {
+        "side": "long",
+        "entry_price": 68802.52,
+        "entry_date": "2024-06-03",
+        "exit_price": 67316.53,
+        "exit_date": "2024-06-11",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -2.16
+      },
+      {
+        "side": "long",
+        "entry_price": 67628.96,
+        "entry_date": "2024-10-16",
+        "exit_price": 93563.35,
+        "exit_date": "2024-12-29",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 38.35
+      },
+      {
+        "side": "long",
+        "entry_price": 98209.85,
+        "entry_date": "2025-01-04",
+        "exit_price": 96941.98,
+        "exit_date": "2025-01-07",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -1.29
+      },
+      {
+        "side": "long",
+        "entry_price": 103926.36,
+        "entry_date": "2025-01-23",
+        "exit_price": 101290.0,
+        "exit_date": "2025-01-28",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -2.54
+      },
+      {
+        "side": "long",
+        "entry_price": 95861.33,
+        "entry_date": "2025-05-03",
+        "exit_price": 103317.8,
+        "exit_date": "2025-06-20",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 7.78
+      },
+      {
+        "side": "long",
+        "entry_price": 106141.0,
+        "entry_date": "2025-06-24",
+        "exit_price": 105711.78,
+        "exit_date": "2025-07-01",
+        "exit_reason": "XunderHband",
+        "pnl_pct": -0.4
+      },
+      {
+        "side": "long",
+        "entry_price": 108888.32,
+        "entry_date": "2025-07-02",
+        "exit_price": 112542.74,
+        "exit_date": "2025-08-02",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 3.36
+      },
+      {
+        "side": "long",
+        "entry_price": 114215.73,
+        "entry_date": "2025-08-03",
+        "exit_price": 116286.76,
+        "exit_date": "2025-08-18",
+        "exit_reason": "XunderHband",
+        "pnl_pct": 1.81
+      },
+      {
+        "side": "long",
+        "entry_price": 121393.95,
+        "entry_date": "2025-10-07",
+        "exit_price": 116749.53,
+        "exit_date": "2025-10-10",
+        "exit_reason": "ATR_SL",
+        "pnl_pct": -3.83
+      }
+    ]
+  }
+}

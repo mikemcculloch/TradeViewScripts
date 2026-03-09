@@ -8,6 +8,7 @@ Strategies included:
   1. EMA Pullback (from existing backtest.py)
   2. Gaussian Channel v3.0 (simple crossover)
   3. Gaussian Channel v3.0 + StochRSI (AI-enhanced)
+  4. Andean Oscillator (bull/bear momentum crossover)
 
 Simulates compound equity growth from a starting capital (default $1,000)
 with configurable commission to see which strategy gets closest to $1M.
@@ -127,6 +128,58 @@ def compute_true_range(df: pd.DataFrame) -> pd.Series:
         (low - close.shift(1)).abs(),
     ], axis=1).max(axis=1)
     return tr
+
+
+def compute_andean_oscillator(close: np.ndarray, open_: np.ndarray,
+                              length: int = 50, sig_length: int = 9
+                              ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Andean Oscillator by @alexgrover.
+
+    Uses exponential envelopes to decompose price action into bull & bear
+    momentum components.  Returns (bull, bear, signal) arrays.
+
+    bull = sqrt(dn2 - dn1^2)  -- rises when there's bullish momentum
+    bear = sqrt(up2 - up1^2)  -- rises when there's bearish momentum
+    signal = EMA(max(bull, bear), sig_length)
+    """
+    n = len(close)
+    alpha = 2.0 / (length + 1)
+
+    up1 = np.zeros(n)
+    up2 = np.zeros(n)
+    dn1 = np.zeros(n)
+    dn2 = np.zeros(n)
+
+    # Initialize bar 0
+    up1[0] = close[0]
+    up2[0] = close[0] ** 2
+    dn1[0] = close[0]
+    dn2[0] = close[0] ** 2
+
+    for i in range(1, n):
+        c = close[i]
+        o = open_[i]
+
+        up1[i] = max(c, o, up1[i - 1] - (up1[i - 1] - c) * alpha)
+        up2[i] = max(c * c, o * o, up2[i - 1] - (up2[i - 1] - c * c) * alpha)
+
+        dn1[i] = min(c, o, dn1[i - 1] + (c - dn1[i - 1]) * alpha)
+        dn2[i] = min(c * c, o * o, dn2[i - 1] + (c * c - dn2[i - 1]) * alpha)
+
+    # Components — clamp to 0 to avoid sqrt of negative due to float precision
+    bull = np.sqrt(np.maximum(dn2 - dn1 * dn1, 0.0))
+    bear = np.sqrt(np.maximum(up2 - up1 * up1, 0.0))
+
+    # Signal line = EMA of max(bull, bear)
+    max_bb = np.maximum(bull, bear)
+    sig_alpha = 2.0 / (sig_length + 1)
+    signal = np.zeros(n)
+    signal[0] = max_bb[0]
+    for i in range(1, n):
+        signal[i] = sig_alpha * max_bb[i] + (1.0 - sig_alpha) * signal[i - 1]
+
+    return bull, bear, signal
 
 
 def compute_stoch_rsi(close: pd.Series, rsi_len: int = 14, stoch_len: int = 14,
@@ -527,6 +580,88 @@ class GaussianChannelStochRSIStrategy(Strategy):
 
 
 # ╔══════════════════════════════════════════════════════════════╗
+# ║   STRATEGY 4: ANDEAN OSCILLATOR                             ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+class AndeanOscillatorStrategy(Strategy):
+    """
+    Andean Oscillator by @alexgrover — translated from Pine Script.
+
+    Three entry modes:
+      'cross'    — Long when bull crosses above bear, close when bear crosses above bull.
+      'signal'   — Long when bull > signal AND bull > bear, close when bull < signal.
+      'momentum' — Long when bull rising AND bull > bear, close when bull starts falling.
+
+    This is a momentum oscillator, so it works best with a trend-following
+    exit rather than fixed SL/TP.
+    """
+    name = "Andean Oscillator"
+    commission_pct = 0.1
+
+    def __init__(self, length: int = 50, sig_length: int = 9,
+                 mode: str = "cross"):
+        self.length = length
+        self.sig_length = sig_length
+        self.mode = mode  # 'cross', 'signal', 'momentum'
+
+    @property
+    def exit_mode(self) -> str:
+        return "signal"
+
+    def config_label(self) -> str:
+        return f"Andean(L{self.length} S{self.sig_length} {self.mode})"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        close = df["close"].values
+        open_ = df["open"].values
+
+        bull, bear, signal = compute_andean_oscillator(
+            close, open_, self.length, self.sig_length
+        )
+        df["ao_bull"] = bull
+        df["ao_bear"] = bear
+        df["ao_signal"] = signal
+
+        n = len(close)
+        buy = np.zeros(n, dtype=bool)
+        close_sig = np.zeros(n, dtype=bool)
+
+        if self.mode == "cross":
+            # Bull crosses above bear → long; bear crosses above bull → close
+            for i in range(1, n):
+                if bull[i] > bear[i] and bull[i - 1] <= bear[i - 1]:
+                    buy[i] = True
+                if bear[i] > bull[i] and bear[i - 1] <= bull[i - 1]:
+                    close_sig[i] = True
+
+        elif self.mode == "signal":
+            # Bull > signal AND bull > bear → long; bull < signal → close
+            for i in range(1, n):
+                if bull[i] > signal[i] and bull[i] > bear[i] and \
+                   not (bull[i - 1] > signal[i - 1] and bull[i - 1] > bear[i - 1]):
+                    buy[i] = True
+                if bull[i] < signal[i] and bull[i - 1] >= signal[i - 1]:
+                    close_sig[i] = True
+
+        elif self.mode == "momentum":
+            # Bull rising AND bull > bear → long; bull starts falling → close
+            for i in range(1, n):
+                bull_rising = bull[i] > bull[i - 1]
+                was_not = not (bull[i - 1] > bear[i - 1] and (i < 2 or bull[i - 1] > bull[i - 2]))
+                if bull_rising and bull[i] > bear[i] and was_not:
+                    buy[i] = True
+                if bull[i] < bull[i - 1] and bull[i - 1] >= bear[i - 1]:
+                    close_sig[i] = True
+
+        df["buy_signal"] = buy
+        df["close_signal"] = close_sig
+        df["sell_signal"] = False
+
+        return df
+
+
+# ╔══════════════════════════════════════════════════════════════╗
 # ║               TRADE SIMULATION ENGINE                       ║
 # ╚══════════════════════════════════════════════════════════════╝
 
@@ -790,6 +925,17 @@ def build_gaussian_stoch_optimization() -> list[GaussianChannelStochRSIStrategy]
     return configs
 
 
+def build_andean_optimization() -> list[AndeanOscillatorStrategy]:
+    """Grid search for Andean Oscillator."""
+    configs = []
+    for length in [20, 34, 50, 80]:
+        for sig_length in [5, 9, 14, 21]:
+            for mode in ["cross", "signal", "momentum"]:
+                configs.append(AndeanOscillatorStrategy(
+                    length=length, sig_length=sig_length, mode=mode))
+    return configs
+
+
 # ╔══════════════════════════════════════════════════════════════╗
 # ║                    MAIN                                     ║
 # ╚══════════════════════════════════════════════════════════════╝
@@ -809,7 +955,7 @@ def main():
     parser.add_argument("--optimize", action="store_true",
                         help="Grid search over strategy parameters (finds best config per strategy per symbol)")
     parser.add_argument("--strategy", nargs="+",
-                        choices=["ema", "gaussian", "gaussian-stoch", "all"],
+                        choices=["ema", "gaussian", "gaussian-stoch", "andean", "all"],
                         default=["all"],
                         help="Which strategies to test")
     args = parser.parse_args()
@@ -840,7 +986,7 @@ def main():
     # ── Build strategy list ─────────────────────────────────────
     strat_names = set(args.strategy)
     if "all" in strat_names:
-        strat_names = {"ema", "gaussian", "gaussian-stoch"}
+        strat_names = {"ema", "gaussian", "gaussian-stoch", "andean"}
 
     if args.optimize:
         strategies_map = {}
@@ -850,6 +996,8 @@ def main():
             strategies_map["Gaussian Channel"] = build_gaussian_optimization()
         if "gaussian-stoch" in strat_names:
             strategies_map["Gaussian+StochRSI"] = build_gaussian_stoch_optimization()
+        if "andean" in strat_names:
+            strategies_map["Andean Oscillator"] = build_andean_optimization()
 
         total_configs = sum(len(v) for v in strategies_map.values())
         print(f"\n  Optimization mode: {total_configs} configs × {len(datasets)} symbols\n")
@@ -862,6 +1010,8 @@ def main():
             strategies_map["Gaussian Channel"] = [GaussianChannelStrategy()]
         if "gaussian-stoch" in strat_names:
             strategies_map["Gaussian+StochRSI"] = [GaussianChannelStochRSIStrategy()]
+        if "andean" in strat_names:
+            strategies_map["Andean Oscillator"] = [AndeanOscillatorStrategy()]
 
     # ── Run all strategies ──────────────────────────────────────
     all_results = []  # list of dicts for summary table

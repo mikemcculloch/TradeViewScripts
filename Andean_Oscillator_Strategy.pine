@@ -1,0 +1,322 @@
+// Andean Oscillator Strategy
+// Based on the Andean Oscillator indicator by @alexgrover
+// Original indicator licensed under CC BY-NC-SA 4.0
+// Strategy wrapper & backtested presets by Wooanaz
+//
+// Created On: 3/9/2026
+// Version: 3.1.0  (Pine Script v6)
+//
+// Optimization results (daily, 1000 bars, $1K capital):
+//   PLTR:    L34  S5  cross   — PF 6.74   $1K → $8,392   DD 20.9%
+//   HIMS:    L20  S21 signal  — PF 6.35   $1K → $8,250   DD 31.7%
+//   XRP:     L34  S9  signal  — PF 11.99  $1K → $5,876   DD 12.4%
+//   BTC:     L50  S21 signal  — PF 5.15   $1K → $2,889   DD 16.6%
+//   ETH:     L34  S5  cross   — PF 2.73   $1K → $2,545   DD 28.6%
+//   GOOGL:   L80  S5  cross   — PF 8.80   $1K → $2,328   DD 14.1%
+
+//@version=6
+strategy(title="Andean Oscillator Strategy", overlay=false,
+     calc_on_every_tick=false, initial_capital=1000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=75,
+     commission_type=strategy.commission.percent, commission_value=0.1,
+     slippage=3, pyramiding=0, process_orders_on_close=false,
+     explicit_plot_zorder=true)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    ENUM TYPES  (v6)                         ║
+// ╚══════════════════════════════════════════════════════════════╝
+enum Preset
+    Custom      = "Custom"
+    BTC_Daily   = "BTC (Daily)"
+    ETH_Daily   = "ETH (Daily)"
+    XRP_Daily   = "XRP (Daily)"
+    GOOGL_Daily = "GOOGL (Daily)"
+    HIMS_Daily  = "HIMS (Daily)"
+    PLTR_Daily  = "PLTR (Daily)"
+
+enum EntryMode
+    Cross    = "cross"
+    Signal   = "signal"
+    Momentum = "momentum"
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET SELECTOR                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+preset = input.enum(Preset.Custom, title="Preset",
+     group="⚡ Preset",
+     tooltip="Backtested presets from optimization. Choose 'Custom' to use your own settings.")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    OSCILLATOR SETTINGS                      ║
+// ╚══════════════════════════════════════════════════════════════╝
+length_i     = input.int(50, title="Length", minval=5, maxval=200, group="Andean Oscillator",
+     tooltip="Smoothing period for exponential envelopes. Lower = more responsive, higher = smoother.")
+sig_length_i = input.int(9,  title="Signal Length", minval=2, maxval=50, group="Andean Oscillator",
+     tooltip="EMA period for the signal line applied to max(bull, bear).")
+entryMode_i  = input.enum(EntryMode.Cross, title="Entry Mode",
+     group="Andean Oscillator",
+     tooltip="cross: bull/bear crossover. signal: bull > signal AND bull > bear. momentum: bull rising AND bull > bear.")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    DISPLAY OPTIONS                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+showDashboard  = input.bool(true,  title="Show Dashboard",      group="🎨 Display")
+showSignals    = input.bool(true,  title="Show Signal Markers",  group="🎨 Display")
+showHistogram  = input.bool(true,  title="Show Momentum Histogram", group="🎨 Display")
+showAreaFill   = input.bool(true,  title="Show Area Fill to Zero",  group="🎨 Display")
+showBgFlash    = input.bool(false, title="Background Flash on Signal", group="🎨 Display",
+     tooltip="Subtle background color flash when buy/close signals fire. Off by default to reduce clutter.")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    DATE RANGE FILTER                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════╗
+// ║              RISK MANAGEMENT (A/B tested winners)            ║
+// ╚══════════════════════════════════════════════════════════════╝
+useAtrSl   = input.bool(true,  title="Enable ATR Stop Loss", group="Risk Management",
+     tooltip="A/B tested: 1.5x ATR SL reduces drawdown with minimal equity impact.")
+atrSlLen   = input.int(14, title="ATR Length", minval=1, group="Risk Management")
+atrSlMult  = input.float(1.5, title="ATR SL Multiplier", minval=0.5, step=0.1, group="Risk Management",
+     tooltip="Tighter SL (1.5x) outperformed wider (2.0x) in A/B testing.")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    DATE RANGE FILTER                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+useDateFilter = input.bool(false, title="Enable Date Range Filter", group="Backtest Range")
+startDate     = input.time(timestamp("2020-01-01"), title="Start Date", group="Backtest Range")
+endDate       = input.time(timestamp("2030-12-31"), title="End Date",   group="Backtest Range")
+inDateRange   = not useDateFilter or (time >= startDate and time <= endDate)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PRESET OVERRIDES                         ║
+// ╚══════════════════════════════════════════════════════════════╝
+isBTC   = preset == Preset.BTC_Daily
+isETH   = preset == Preset.ETH_Daily
+isXRP   = preset == Preset.XRP_Daily
+isGOOGL = preset == Preset.GOOGL_Daily
+isHIMS  = preset == Preset.HIMS_Daily
+isPLTR  = preset == Preset.PLTR_Daily
+isPreset = preset != Preset.Custom
+
+length     = isBTC ? 50  : isETH ? 34  : isXRP ? 34  : isGOOGL ? 80 : isHIMS ? 20 : isPLTR ? 34 : length_i
+sig_length = isBTC ? 21  : isETH ? 5   : isXRP ? 9   : isGOOGL ? 5  : isHIMS ? 21 : isPLTR ? 5  : sig_length_i
+entryMode  = isBTC ? EntryMode.Signal : isETH ? EntryMode.Cross : isXRP ? EntryMode.Signal : isGOOGL ? EntryMode.Cross : isHIMS ? EntryMode.Signal : isPLTR ? EntryMode.Cross : entryMode_i
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║              ANDEAN OSCILLATOR CALCULATION                   ║
+// ║  (exact reproduction of @alexgrover's indicator)            ║
+// ╚══════════════════════════════════════════════════════════════╝
+var alpha = 2.0 / (length + 1)
+
+var float up1 = 0.0
+var float up2 = 0.0
+var float dn1 = 0.0
+var float dn2 = 0.0
+
+C = close
+O = open
+
+up1 := nz(math.max(C, O, up1[1] - (up1[1] - C) * alpha), C)
+up2 := nz(math.max(C * C, O * O, up2[1] - (up2[1] - C * C) * alpha), C * C)
+
+dn1 := nz(math.min(C, O, dn1[1] + (C - dn1[1]) * alpha), C)
+dn2 := nz(math.min(C * C, O * O, dn2[1] + (C * C - dn2[1]) * alpha), C * C)
+
+// Components
+bull = math.sqrt(math.max(dn2 - dn1 * dn1, 0))
+bear = math.sqrt(math.max(up2 - up1 * up1, 0))
+
+signal = ta.ema(math.max(bull, bear), sig_length)
+
+// Derived values
+delta      = bull - bear
+bullDom    = bull > bear
+trendStr   = bull + bear > 0 ? math.abs(delta) / (bull + bear) * 100 : 0
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    COLOR PALETTE                            ║
+// ╚══════════════════════════════════════════════════════════════╝
+bullColor    = #26a69a       // teal green
+bearColor    = #ef5350       // soft red
+signalColor  = #ffab40       // warm amber
+bullColorLt  = color.new(bullColor, 85)
+bearColorLt  = color.new(bearColor, 85)
+histBullCol  = color.new(bullColor, 40)
+histBearCol  = color.new(bearColor, 40)
+histBullFade = color.new(bullColor, 70)
+histBearFade = color.new(bearColor, 70)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    PLOTS                                    ║
+// ╚══════════════════════════════════════════════════════════════╝
+// — Momentum histogram (columns behind everything) —
+histColor = delta >= 0 ?
+     (delta >= delta[1] ? histBullCol : histBullFade) :
+     (delta <= delta[1] ? histBearCol : histBearFade)
+plot(showHistogram ? delta : na, "Momentum", color=histColor,
+     style=plot.style_columns, linewidth=1)
+
+// — Zero line —
+pZero = plot(0, "Zero", color=color.new(color.gray, 60), linewidth=1, display=display.pane)
+
+// — Area fills to zero (soft glow under the curves) —
+pBull   = plot(bull,   "Bull",   bullColor,   linewidth=2)
+pBear   = plot(bear,   "Bear",   bearColor,   linewidth=2)
+pSignal = plot(signal, "Signal", signalColor, linewidth=1, style=plot.style_line)
+
+fill(pBull, pZero, color=showAreaFill and bullDom ? color.new(bullColor, 88) : na,
+     title="Bull Area")
+fill(pBear, pZero, color=showAreaFill and not bullDom ? color.new(bearColor, 88) : na,
+     title="Bear Area")
+
+// — Fill between bull & bear (dominance ribbon) —
+fill(pBull, pBear,
+     color=bullDom ? color.new(bullColor, 75) : color.new(bearColor, 75),
+     title="Dominance Ribbon")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    ENTRY / EXIT LOGIC                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// --- Mode: cross ---
+crossLong  = ta.crossover(bull, bear)
+crossClose = ta.crossover(bear, bull)
+
+// --- Mode: signal ---
+bullAboveSignalAndBear     = bull > signal and bull > bear
+bullAboveSignalAndBear_prev = bull[1] > signal[1] and bull[1] > bear[1]
+signalLong  = bullAboveSignalAndBear and not bullAboveSignalAndBear_prev
+signalClose = ta.crossunder(bull, signal)
+
+// --- Mode: momentum ---
+bullRising     = bull > bull[1]
+bullWasRising  = bull[1] > bull[2]
+momLong  = bullRising and bull > bear and not (bull[1] > bear[1] and bullWasRising)
+momClose = bull < bull[1] and bull[1] >= bear[1]
+
+// --- Select active signals based on mode ---
+longCondition  = (entryMode == EntryMode.Cross ? crossLong : entryMode == EntryMode.Signal ? signalLong : momLong) and inDateRange
+closeCondition = (entryMode == EntryMode.Cross ? crossClose : entryMode == EntryMode.Signal ? signalClose : momClose) and inDateRange
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    STRATEGY EXECUTION                       ║
+// ╚══════════════════════════════════════════════════════════════╝
+// ATR for stop loss
+atrValue = ta.atr(atrSlLen)
+
+if longCondition
+    strategy.entry("Long", strategy.long)
+    if useAtrSl
+        slPrice = close - atrValue * atrSlMult
+        strategy.exit("SL", "Long", stop=slPrice)
+
+if closeCondition
+    strategy.close("Long")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    VISUAL SIGNALS                           ║
+// ╚══════════════════════════════════════════════════════════════╝
+// Clean markers — no text labels to avoid overlap clutter
+plotshape(showSignals and longCondition,  title="Buy",
+     style=shape.diamond, location=location.bottom,
+     color=bullColor, size=size.tiny)
+plotshape(showSignals and closeCondition, title="Close",
+     style=shape.diamond, location=location.top,
+     color=bearColor, size=size.tiny)
+
+// Optional background flash
+bgcolor(showBgFlash and longCondition ? color.new(bullColor, 93) :
+     showBgFlash and closeCondition ? color.new(bearColor, 93) : na,
+     title="Signal Background")
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    POSITION TRACKING                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+var bool inPosition = false
+if longCondition
+    inPosition := true
+if closeCondition
+    inPosition := false
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║                    INFO DASHBOARD                           ║
+// ╚══════════════════════════════════════════════════════════════╝
+if showDashboard and barstate.islastconfirmedhistory
+    // --- Theme colors ---
+    headerBg   = color.new(#0d1117, 0)   // dark navy
+    rowBg      = color.new(#161b22, 0)   // slightly lighter
+    rowAltBg   = color.new(#1c2333, 0)   // alternating row
+    borderCol  = color.new(#30363d, 0)   // subtle border
+    labelCol   = #8b949e                  // muted gray labels
+    valueCol   = #e6edf3                  // bright white values
+    accentCol  = #58a6ff                  // blue accent
+
+    ROWS = 12
+    var dash = table.new(position.top_right, 2, ROWS,
+         bgcolor=rowBg, border_width=1, border_color=borderCol,
+         frame_width=2, frame_color=borderCol)
+
+    // Row 0 — Title bar
+    dash.cell(0, 0, "  ◈  Andean Oscillator  ", text_color=accentCol,
+         text_size=size.small, bgcolor=headerBg, text_halign=text.align_left)
+    dash.cell(1, 0, "v3.1",
+         text_color=color.new(labelCol, 30), text_size=size.tiny, bgcolor=headerBg,
+         text_halign=text.align_right)
+
+    // Row 1 — Preset
+    dash.cell(0, 1, "Preset",  text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+    dash.cell(1, 1, str.tostring(preset), text_color=color.new(valueCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+
+    // Row 2 — Mode
+    modeIcon = entryMode == EntryMode.Cross ? "✕" : entryMode == EntryMode.Signal ? "◆" : "▲"
+    dash.cell(0, 2, "Mode",  text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowBg)
+    dash.cell(1, 2, modeIcon + "  " + str.tostring(entryMode),
+         text_color=#ffab40, text_size=size.tiny, bgcolor=rowBg)
+
+    // Row 3 — Length
+    dash.cell(0, 3, "Length",  text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+    dash.cell(1, 3, str.tostring(length),
+         text_color=color.new(valueCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+
+    // Row 4 — Signal Length
+    dash.cell(0, 4, "Sig Len", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowBg)
+    dash.cell(1, 4, str.tostring(sig_length),
+         text_color=color.new(valueCol, 0), text_size=size.tiny, bgcolor=rowBg)
+
+    // Row 5 — separator
+    dash.cell(0, 5, "", bgcolor=headerBg)
+    dash.cell(1, 5, "", bgcolor=headerBg)
+
+    // Row 6 — Bull value
+    dash.cell(0, 6, "Bull", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+    dash.cell(1, 6, str.tostring(bull, "#,###.##"),
+         text_color=bullColor, text_size=size.tiny, bgcolor=rowAltBg)
+
+    // Row 7 — Bear value
+    dash.cell(0, 7, "Bear", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowBg)
+    dash.cell(1, 7, str.tostring(bear, "#,###.##"),
+         text_color=bearColor, text_size=size.tiny, bgcolor=rowBg)
+
+    // Row 8 — Trend
+    trendLabel = bullDom ? "▲ BULLISH" : "▼ BEARISH"
+    trendColor = bullDom ? bullColor : bearColor
+    dash.cell(0, 8, "Trend", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+    dash.cell(1, 8, trendLabel + "  " + str.tostring(trendStr, "#.0") + "%",
+         text_color=trendColor, text_size=size.tiny, bgcolor=rowAltBg)
+
+    // Row 9 — Position status
+    posLabel = inPosition ? "● LONG" : "○ FLAT"
+    posColor = inPosition ? bullColor : color.new(labelCol, 0)
+    dash.cell(0, 9, "Position", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowBg)
+    dash.cell(1, 9, posLabel,
+         text_color=posColor, text_size=size.tiny, bgcolor=rowBg)
+
+    // Row 10 — separator
+    dash.cell(0, 10, "", bgcolor=headerBg)
+    dash.cell(1, 10, "", bgcolor=headerBg)
+
+    // Row 11 — Risk settings
+    riskLabel = useAtrSl ? "SL " + str.tostring(atrSlMult, "#.#") + "x ATR" : "No SL"
+    dash.cell(0, 11, "Risk", text_color=color.new(labelCol, 0), text_size=size.tiny, bgcolor=rowAltBg)
+    dash.cell(1, 11, riskLabel + "  |  75%",
+         text_color=#ffab40, text_size=size.tiny, bgcolor=rowAltBg)

@@ -145,6 +145,12 @@ class FilterConfig:
         self.sl_atr_mult: float = kwargs.get("sl_atr_mult", 2.0)
         self.rr_ratio: float = kwargs.get("rr_ratio", 2.0)
 
+        # Exit strategy: "sl_tp" (legacy SL/TP only), "death_cross", "fast_ema", "chandelier", "chandelier_fast_ema"
+        self.exit_mode: str = kwargs.get("exit_mode", "sl_tp")
+        self.chandelier_atr_len: int = kwargs.get("chandelier_atr_len", 22)
+        self.chandelier_atr_mult: float = kwargs.get("chandelier_atr_mult", 3.0)
+        self.exit_bars_below: int = kwargs.get("exit_bars_below", 1)
+
     def short_name(self) -> str:
         parts = [f"EMA({self.fast_len}/{self.slow_len})"]
         if self.use_cooldown:
@@ -161,6 +167,14 @@ class FilterConfig:
             parts.append("RSI")
         parts.append(f"SL{self.sl_atr_mult}x")
         parts.append(f"RR{self.rr_ratio}")
+        exit_labels = {
+            "sl_tp": "SL/TP",
+            "death_cross": "DeathX",
+            "fast_ema": "FastEMA",
+            "chandelier": "Chand",
+            "chandelier_fast_ema": "Chand+FE",
+        }
+        parts.append(exit_labels.get(self.exit_mode, self.exit_mode))
         return " ".join(parts)
 
 
@@ -274,16 +288,31 @@ def _apply_cooldown(signals: np.ndarray, cooldown: int) -> np.ndarray:
 
 def simulate_trades(df: pd.DataFrame, cfg: FilterConfig, trade_direction: str = "both") -> list[dict]:
     """
-    Simulate trades using ATR-based SL and Risk:Reward TP.
-    Uses numpy arrays for speed.
+    Simulate trades with configurable exit strategies:
+      - sl_tp:              SL/TP only (legacy)
+      - death_cross:        Exit when fast EMA crosses below slow EMA (+ SL)
+      - fast_ema:           Exit on N consecutive closes below fast EMA (+ SL)
+      - chandelier:         ATR trailing stop from highest high since entry (+ SL)
+      - chandelier_fast_ema: First of chandelier or fast_ema to fire (+ SL)
     """
     close = df["close"].values
     high = df["high"].values
     low = df["low"].values
     atr = df["atr"].values
+    ema_fast = df["ema_fast"].values
+    ema_slow = df["ema_slow"].values
     buy_sig = df["buy_signal"].values
     sell_sig = df["sell_signal"].values
     dates = df.index
+
+    # Pre-compute chandelier ATR (different length than entry ATR)
+    chandelier_atr = compute_atr(df, cfg.chandelier_atr_len).values
+
+    mode = cfg.exit_mode
+    use_chandelier = mode in ("chandelier", "chandelier_fast_ema")
+    use_fast_ema = mode in ("fast_ema", "chandelier_fast_ema")
+    use_death_cross = mode == "death_cross"
+    use_tp = mode == "sl_tp"  # TP only in legacy mode
 
     trades = []
     in_position = False
@@ -292,33 +321,83 @@ def simulate_trades(df: pd.DataFrame, cfg: FilterConfig, trade_direction: str = 
     sl = 0.0
     tp = 0.0
     entry_date = None
+    highest_since_entry = 0.0
+    lowest_since_entry = float("inf")
+    bars_below_fast = 0
+    bars_above_fast = 0
 
     for i in range(len(close)):
         if in_position:
+            # --- Tracking for dynamic exits ---
             if side == "long":
-                if low[i] <= sl:
-                    trades.append({"side": "long", "entry_price": entry_price, "entry_date": entry_date,
-                                   "exit_price": sl, "exit_date": dates[i], "exit_reason": "SL",
-                                   "pnl_pct": (sl / entry_price - 1) * 100})
-                    in_position = False
-                elif high[i] >= tp:
-                    trades.append({"side": "long", "entry_price": entry_price, "entry_date": entry_date,
-                                   "exit_price": tp, "exit_date": dates[i], "exit_reason": "TP",
-                                   "pnl_pct": (tp / entry_price - 1) * 100})
-                    in_position = False
+                highest_since_entry = max(highest_since_entry, high[i])
+                if close[i] < ema_fast[i]:
+                    bars_below_fast += 1
+                else:
+                    bars_below_fast = 0
             else:
+                lowest_since_entry = min(lowest_since_entry, low[i])
+                if close[i] > ema_fast[i]:
+                    bars_above_fast += 1
+                else:
+                    bars_above_fast = 0
+
+            # --- Check exits (priority: SL first, then strategy exit, then TP) ---
+            exited = False
+
+            if side == "long":
+                # 1. Hard stop loss always active
+                if low[i] <= sl:
+                    _append_trade(trades, "long", entry_price, sl, entry_date, dates[i], "SL")
+                    exited = True
+                # 2. Take profit (only in sl_tp mode)
+                elif use_tp and high[i] >= tp:
+                    _append_trade(trades, "long", entry_price, tp, entry_date, dates[i], "TP")
+                    exited = True
+                # 3. Death cross
+                elif use_death_cross and i > 0 and ema_fast[i] < ema_slow[i] and ema_fast[i - 1] >= ema_slow[i - 1]:
+                    _append_trade(trades, "long", entry_price, close[i], entry_date, dates[i], "DeathX")
+                    exited = True
+                else:
+                    # 4. Chandelier trailing stop
+                    chand_exit = False
+                    if use_chandelier and not np.isnan(chandelier_atr[i]):
+                        chand_stop = highest_since_entry - chandelier_atr[i] * cfg.chandelier_atr_mult
+                        if close[i] < chand_stop:
+                            _append_trade(trades, "long", entry_price, close[i], entry_date, dates[i], "Chand")
+                            exited = True
+                            chand_exit = True
+                    # 5. Close below fast EMA
+                    if not chand_exit and use_fast_ema and bars_below_fast >= cfg.exit_bars_below:
+                        _append_trade(trades, "long", entry_price, close[i], entry_date, dates[i], "FastEMA")
+                        exited = True
+            else:  # short
                 if high[i] >= sl:
-                    trades.append({"side": "short", "entry_price": entry_price, "entry_date": entry_date,
-                                   "exit_price": sl, "exit_date": dates[i], "exit_reason": "SL",
-                                   "pnl_pct": (1 - sl / entry_price) * 100})
-                    in_position = False
-                elif low[i] <= tp:
-                    trades.append({"side": "short", "entry_price": entry_price, "entry_date": entry_date,
-                                   "exit_price": tp, "exit_date": dates[i], "exit_reason": "TP",
-                                   "pnl_pct": (1 - tp / entry_price) * 100})
-                    in_position = False
+                    _append_trade(trades, "short", entry_price, sl, entry_date, dates[i], "SL")
+                    exited = True
+                elif use_tp and low[i] <= tp:
+                    _append_trade(trades, "short", entry_price, tp, entry_date, dates[i], "TP")
+                    exited = True
+                elif use_death_cross and i > 0 and ema_fast[i] > ema_slow[i] and ema_fast[i - 1] <= ema_slow[i - 1]:
+                    _append_trade(trades, "short", entry_price, close[i], entry_date, dates[i], "GoldenX")
+                    exited = True
+                else:
+                    chand_exit = False
+                    if use_chandelier and not np.isnan(chandelier_atr[i]):
+                        chand_stop = lowest_since_entry + chandelier_atr[i] * cfg.chandelier_atr_mult
+                        if close[i] > chand_stop:
+                            _append_trade(trades, "short", entry_price, close[i], entry_date, dates[i], "Chand")
+                            exited = True
+                            chand_exit = True
+                    if not chand_exit and use_fast_ema and bars_above_fast >= cfg.exit_bars_below:
+                        _append_trade(trades, "short", entry_price, close[i], entry_date, dates[i], "FastEMA")
+                        exited = True
+
+            if exited:
+                in_position = False
             continue
 
+        # --- Entry logic ---
         a = atr[i]
         if np.isnan(a) or a <= 0:
             continue
@@ -331,6 +410,8 @@ def simulate_trades(df: pd.DataFrame, cfg: FilterConfig, trade_direction: str = 
             entry_date = dates[i]
             side = "long"
             in_position = True
+            highest_since_entry = high[i]
+            bars_below_fast = 0
         elif sell_sig[i] and trade_direction in ("both", "short"):
             sl_dist = a * cfg.sl_atr_mult
             entry_price = close[i]
@@ -339,6 +420,8 @@ def simulate_trades(df: pd.DataFrame, cfg: FilterConfig, trade_direction: str = 
             entry_date = dates[i]
             side = "short"
             in_position = True
+            lowest_since_entry = low[i]
+            bars_above_fast = 0
 
     if in_position:
         pnl = (close[-1] / entry_price - 1) * 100 if side == "long" else (1 - close[-1] / entry_price) * 100
@@ -347,6 +430,20 @@ def simulate_trades(df: pd.DataFrame, cfg: FilterConfig, trade_direction: str = 
                        "pnl_pct": pnl})
 
     return trades
+
+
+def _append_trade(trades: list, side: str, entry_price: float, exit_price: float,
+                  entry_date, exit_date, reason: str):
+    """Helper to append a trade with correct PnL calculation."""
+    if side == "long":
+        pnl = (exit_price / entry_price - 1) * 100
+    else:
+        pnl = (1 - exit_price / entry_price) * 100
+    trades.append({
+        "side": side, "entry_price": entry_price, "entry_date": entry_date,
+        "exit_price": exit_price, "exit_date": exit_date, "exit_reason": reason,
+        "pnl_pct": pnl,
+    })
 
 
 # ╔══════════════════════════════════════════════════════════════╗
@@ -440,6 +537,17 @@ def main():
                         help="Run grid search over filter/parameter combinations")
     parser.add_argument("--direction", default="both", choices=["long", "short", "both"],
                         help="Trade direction")
+    parser.add_argument("--exit-mode", default="sl_tp",
+                        choices=["sl_tp", "death_cross", "fast_ema", "chandelier", "chandelier_fast_ema"],
+                        help="Exit strategy (sl_tp=legacy SL/TP, death_cross, fast_ema, chandelier, chandelier_fast_ema)")
+    parser.add_argument("--compare-exits", action="store_true",
+                        help="Run all 5 exit strategies side-by-side for comparison")
+    parser.add_argument("--chandelier-len", type=int, default=22,
+                        help="ATR length for Chandelier exit (default: 22)")
+    parser.add_argument("--chandelier-mult", type=float, default=3.0,
+                        help="ATR multiplier for Chandelier exit (default: 3.0)")
+    parser.add_argument("--exit-bars", type=int, default=1,
+                        help="Consecutive bars below fast EMA to trigger exit (default: 1)")
     args = parser.parse_args()
 
     if not args.api_key:
@@ -468,37 +576,64 @@ def main():
         sys.exit(1)
 
     # ── Choose configs ──────────────────────────────────────────
+    exit_modes_to_test = ["sl_tp", "death_cross", "fast_ema", "chandelier", "chandelier_fast_ema"] if args.compare_exits else [args.exit_mode]
+
     if args.optimize:
-        configs = build_optimization_configs()
-        print(f"\n  Optimization mode: testing {len(configs)} configurations per symbol\n")
+        base_configs = build_optimization_configs()
+        print(f"\n  Optimization mode: testing {len(base_configs)} configurations per symbol\n")
     else:
-        configs = [FilterConfig()]  # defaults
-        print(f"\n  Single run with default config: {configs[0].short_name()}\n")
+        base_configs = [FilterConfig()]
+
+    # Inject exit params into all configs
+    configs_per_exit = {}
+    for em in exit_modes_to_test:
+        cfgs = []
+        for bc in base_configs:
+            cfg = FilterConfig(
+                fast_len=bc.fast_len, slow_len=bc.slow_len,
+                use_cooldown=bc.use_cooldown, cooldown_bars=bc.cooldown_bars,
+                filter_sideways=bc.filter_sideways, sideways_threshold=bc.sideways_threshold,
+                use_volume=bc.use_volume, use_candle_confirm=bc.use_candle_confirm,
+                use_slope=bc.use_slope, slope_lookback=bc.slope_lookback,
+                use_rsi=bc.use_rsi, rsi_overbought=bc.rsi_overbought, rsi_oversold=bc.rsi_oversold,
+                sl_atr_mult=bc.sl_atr_mult, rr_ratio=bc.rr_ratio,
+                exit_mode=em,
+                chandelier_atr_len=args.chandelier_len,
+                chandelier_atr_mult=args.chandelier_mult,
+                exit_bars_below=args.exit_bars,
+            )
+            cfgs.append(cfg)
+        configs_per_exit[em] = cfgs
+
+    if not args.optimize and not args.compare_exits:
+        print(f"\n  Single run with config: {configs_per_exit[exit_modes_to_test[0]][0].short_name()}\n")
+    elif args.compare_exits:
+        print(f"\n  Comparing {len(exit_modes_to_test)} exit strategies per symbol\n")
 
     # ── Run backtest ────────────────────────────────────────────
     all_results = []
 
     for sym, df in datasets.items():
-        best_pf = -1
-        best_result = None
+        for em, configs in configs_per_exit.items():
+            best_pf = -1
+            best_result = None
 
-        for cfg in configs:
-            sig_df = generate_signals(df, cfg)
-            trades = simulate_trades(sig_df, cfg, args.direction)
-            metrics = calc_metrics(trades)
-            metrics["symbol"] = sym
-            metrics["config"] = cfg.short_name()
+            for cfg in configs:
+                sig_df = generate_signals(df, cfg)
+                trades = simulate_trades(sig_df, cfg, args.direction)
+                metrics = calc_metrics(trades)
+                metrics["symbol"] = sym
+                metrics["config"] = cfg.short_name()
 
-            if args.optimize:
-                # Track best by profit factor (with min trades filter)
-                if metrics["total"] >= 5 and metrics["profit_factor"] > best_pf:
-                    best_pf = metrics["profit_factor"]
-                    best_result = metrics
-            else:
-                all_results.append(metrics)
+                if args.optimize:
+                    if metrics["total"] >= 5 and metrics["profit_factor"] > best_pf:
+                        best_pf = metrics["profit_factor"]
+                        best_result = metrics
+                else:
+                    all_results.append(metrics)
 
-        if args.optimize and best_result:
-            all_results.append(best_result)
+            if args.optimize and best_result:
+                all_results.append(best_result)
 
     # ── Print results ───────────────────────────────────────────
     if not all_results:

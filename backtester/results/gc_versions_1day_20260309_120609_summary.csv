@@ -1,0 +1,6 @@
+symbol,config,total,wins,losses,win_rate,avg_win,avg_loss,profit_factor,total_pnl,max_drawdown,expectancy,final_equity,compound_dd
+BTC/USD,v3.0 GC(4p/144/1.414) src=hlc3,29,9,20,31.0,20.6,-2.1,4.41,143.38,18.62,4.94,3212.26,17.19
+BTC/USD,v3.1 GC(4p/144/1.414) src=hlc3 StochRSI+ATR_SL,17,9,8,52.9,16.93,-2.43,7.84,132.94,8.27,7.82,2401.85,6.11
+BTC/USD,v3.3 GC(4p/144/1.414) src=hlc3 LATE TrendFlip,9,4,5,44.4,50.94,-9.62,4.24,155.69,14.6,17.3,2766.49,17.59
+BTC/USD,v3.3 GC(4p/144/1.414) src=hlc3 LATE FiltX,20,10,10,50.0,17.69,-3.5,5.05,141.84,13.17,7.09,3156.05,12.63
+BTC/USD,v3.3 GC(4p/144/1.414) src=hlc3 LATE LbandX,10,4,6,40.0,47.4,-8.33,3.79,139.63,13.49,13.96,2488.54,13.97

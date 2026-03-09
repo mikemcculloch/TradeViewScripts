@@ -1,0 +1,3 @@
+symbol,config,total,wins,losses,win_rate,avg_win,avg_loss,profit_factor,total_pnl,max_drawdown,expectancy,final_equity,compound_dd
+BTC/USD,v3.1 GC(4p/144/1.414) src=hlc3 StochRSI 100%eq,17,9,8,52.9,16.93,-2.82,6.76,129.83,8.27,7.64,2980.05,8.11
+BTC/USD,v3.1 GC(4p/144/1.414) src=hlc3 StochRSI ATR_SL(1.5x) 75%eq,17,9,8,52.9,16.93,-2.43,7.84,132.94,8.27,7.82,2401.85,6.11

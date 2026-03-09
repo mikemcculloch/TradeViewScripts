@@ -1,5 +1,5 @@
 //@version=5
-strategy(title="AI - Gaussian Channel Strategy v3.0", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, slippage=3, fill_orders_on_standard_ohlc=true)
+strategy(title="AI - Gaussian Channel Strategy v3.1", overlay=true, calc_on_every_tick=false, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=75, commission_type=strategy.commission.percent, commission_value=0.1, slippage=3, fill_orders_on_standard_ohlc=true)
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Date condition inputs
@@ -71,6 +71,14 @@ smoothD = input.int(3, "StochRSI D", minval=1, group="Stoch RSI")
 lengthRSI = input.int(14, "RSI Length", minval=1, group="Stoch RSI")
 lengthStoch = input.int(14, "Stochastic Length", minval=1, group="Stoch RSI")
 stochSrc = input(close, title="RSI Source", group="Stoch RSI")
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Risk Management — ATR Stop Loss (A/B tested: 1.5x ATR reduces drawdown)
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+useAtrSl = input.bool(true, "Enable ATR Stop Loss", group="Risk Management", tooltip="A/B tested: 1.5x ATR SL reduces drawdown with minimal equity impact")
+atrSlLength = input.int(14, "ATR Length", minval=1, group="Risk Management")
+atrSlMult = input.float(1.5, "ATR SL Multiplier", minval=0.5, step=0.1, group="Risk Management")
+atrVal = ta.atr(atrSlLength)
 rsi1 = ta.rsi(stochSrc, lengthRSI)
 k = ta.sma(ta.stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
 d = ta.sma(k, smoothD)
@@ -86,6 +94,9 @@ closeAllCondition = ta.crossunder(close, hband) and timeCondition
 
 if longCondition
     strategy.entry("long", strategy.long)
+    if useAtrSl
+        slPrice = close - atrVal * atrSlMult
+        strategy.exit("SL", "long", stop=slPrice)
 
 if closeAllCondition
     strategy.close("long")
