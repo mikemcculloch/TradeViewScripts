@@ -31,8 +31,8 @@ showInfoPanel = input.bool(true, title="Show Info Panel",                       
 useCooldown           = input.bool(true,   title="Enable Cooldown Between Signals",  group="Filters", tooltip="Minimum 3 bars between same-direction signals")
 filterSideways        = input.bool(true,   title="Suppress Signals in Sideways Market", group="Filters", tooltip="Blocks signals when EMAs are within 0.5% of each other")
 useVolumeFilter       = input.bool(true,   title="Require Above-Average Volume",     group="Filters", tooltip="Signal only fires when volume > its 20-bar SMA")
-useCandleConfirm      = input.bool(true,   title="Require Confirming Candle Body",   group="Filters", tooltip="Buy needs bullish close; sell needs bearish close")
 useSlopeFilter        = input.bool(true,   title="Require EMA Slope Alignment",      group="Filters", tooltip="Slow EMA must be sloping in the trend direction over 10 bars")
+requireBarClose       = input.bool(true,   title="Require Bar Close Before Signal",       group="Filters", tooltip="Signals only appear on confirmed/closed bars. Prevents flickering on forming candles")
 
 useRsiFilter_i        = input.bool(false,  title="Enable RSI Filter",                group="Optional Filters", tooltip="Blocks buys above 70 RSI, sells below 30 RSI (auto-enabled by presets)")
 rsiOverbought         = input.float(70.0, minval=50, maxval=100, title="RSI Overbought", group="Optional Filters")
@@ -54,7 +54,6 @@ useRsiFilter = isPreset ? true : useRsiFilter_i
 useCooldown_f      = isPreset ? true : useCooldown
 filterSideways_f   = isPreset ? true : filterSideways
 useVolumeFilter_f  = isPreset ? true : useVolumeFilter
-useCandleConfirm_f = isPreset ? true : useCandleConfirm
 useSlopeFilter_f   = isPreset ? true : useSlopeFilter
 
 // ╔══════════════════════════════════════════════════════════════╗
@@ -86,10 +85,6 @@ htfFast   = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, fastL
 htfSlow   = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, slowLen), lookahead=barmerge.lookahead_on)
 htfBullOk = not useHtfFilter or (htfFast > htfSlow)
 htfBearOk = not useHtfFilter or (htfFast < htfSlow)
-
-// === Candle Confirmation ===
-candleBuyOk  = not useCandleConfirm_f or (realClose > realOpen)
-candleSellOk = not useCandleConfirm_f or (realClose < realOpen)
 
 // === EMA Slope Filter (10-bar lookback) ===
 slopeBuyOk  = not useSlopeFilter_f or (emaSlow > emaSlow[10])
@@ -130,14 +125,15 @@ redAllowed   = not useCooldown_f or na(lastRedBar)   or (bar_index - lastRedBar 
 // ║                    SIGNAL CONDITIONS                        ║
 // ╚══════════════════════════════════════════════════════════════╝
 sidewaysOk = not filterSideways_f or not isSideways
+barOk      = not requireBarClose or barstate.isconfirmed
 
 // --- Slow EMA signals ---
-greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk
-redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk
+greenTriangle = isBullTrend and priceCrossUpSlow   and greenAllowed and sidewaysOk and barOk and volumeOk and rsiBuyOk  and htfBullOk and slopeBuyOk
+redTriangle   = isBearTrend and priceCrossDownSlow and redAllowed   and sidewaysOk and barOk and volumeOk and rsiSellOk and htfBearOk and slopeSellOk
 
 // --- Fast EMA signals ---
-greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and volumeOk and rsiBuyOk  and htfBullOk and candleBuyOk  and slopeBuyOk
-redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and volumeOk and rsiSellOk and htfBearOk and candleSellOk and slopeSellOk
+greenCircle = isBullTrend and priceCrossUpFast   and greenAllowed and sidewaysOk and barOk and volumeOk and rsiBuyOk  and htfBullOk and slopeBuyOk
+redCircle   = isBearTrend and priceCrossDownFast and redAllowed   and sidewaysOk and barOk and volumeOk and rsiSellOk and htfBearOk and slopeSellOk
 
 // === Update cooldown ===
 if greenTriangle or greenCircle
